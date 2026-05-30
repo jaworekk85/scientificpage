@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Scientific Playground</title>
+
+<link rel="stylesheet" href="style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/algebrite/dist/algebrite.bundle-for-browser.js"></script>
+<script src="https://unpkg.com/mathjs@7.0.0/dist/math.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+
+<body>
+
+<header>
+<h1>Scientific Playground</h1>
+</header>
+
+<nav class="tabs">
+  <button data-tab="plotter" class="active">Plotter</button>
+  <button data-tab="methods">Methods</button>
+  <button data-tab="physics">Physics</button>
+</nav>
+
+<div class="view active" id="plotter">
+
+<button id="togglePanel">⚙ Controls</button>
+
+<div class="layout">
+
+<!-- LEFT PANEL -->
+<div class="panel controls-panel">
+
+<h2>Function</h2>
+
+<input id="eq" value="2*sin(x)+4*cos(x/2)">
+
+<div class="row inline-inputs">
+  <label>min <input id="min" value="0"></label>
+  <label>max <input id="max" value="10"></label>
+  <label>step <input id="step" value="0.01"></label>
+</div>
+
+<h3>Derivative</h3>
+<input id="dev1" value="2*cos(x)-2*sin(x/2)">
+<label>h = <span id="hVal">0.01</span></label>
+<input id="h" type="range" min="0.001" max="1" step="0.001" value="0.01">
+
+<h3>Second derivative</h3>
+<input id="dev2">
+<label>h₂ = <span id="h2Val">0.01</span></label>
+<input id="h2" type="range" min="0.001" max="1" step="0.001" value="0.01">
+
+<h3>Integral</h3>
+<input id="int" value="-2*cos(x)+8*sin(x/2)">
+
+<label>h = <span id="hIntVal">0.01</span></label>
+<input id="hInt" type="range" min="0.001" max="1" step="0.001" value="0.01">
+<label>C = <span id="cVal">0</span></label>
+<input id="cSlider" type="range" min="-10" max="10" step="0.1" value="0">
+
+<button id="plotBtn">Plot</button>
+
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="panel">
+
+<div class="controls">
+
+  <div class="controls-row">
+    <span class="label">Function</span>
+    <label><input type="checkbox" data-type="function" checked> f(x)</label>
+  </div>
+
+  <div class="controls-row">
+    <span class="label">Derivatives</span>
+    <label><input type="checkbox" data-type="analytic"> analytic</label>
+    <label><input type="checkbox" data-type="num_sym"> sym</label>
+    <label><input type="checkbox" data-type="num_asym"> asym</label>
+    <label><input type="checkbox" data-type="tangent"> tangents</label>
+  </div>
+  
+  <div class="controls-row">
+	<span class="label">2nd Derivative</span>
+	<label><input type="checkbox" data-type="analytic2"> analytic</label>
+	<label><input type="checkbox" data-type="num2"> numeric</label>
+	<label><input type="checkbox" data-type="tangent2">parabolic tangent</label>
+  </div>
+
+  <div class="controls-row">
+    <span class="label">Integral</span>
+    <label><input type="checkbox" data-type="integral"> integral</label>
+	<label><input type="checkbox" data-type="num_rect"> rect</label>
+	<label><input type="checkbox" data-type="num_trap"> trap</label>
+    <label><input type="checkbox" data-type="rectangles"> rectangles</label>
+  </div>
+
+  <div class="controls-row">
+    <span class="label">Display</span>
+    <label><input type="checkbox" id="showValues" checked> values</label>
+  </div>
+
+</div>
+
+<div id="plot"></div>
+
+</div>
+
+</div>
+</div>
+
+<div class="view" id="methods">
+<h2>Numerical Methods (coming soon)</h2>
+</div>
+
+<div class="view" id="physics">
+<h2>Physics Simulation (coming soon)</h2>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
