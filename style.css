@@ -140,6 +140,14 @@ header h1 {
   color: #334155;
 }
 
+.status {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #9a3412;
+}
+
 .controls-panel input[type="text"],
 .controls-panel input:not([type]),
 .controls-panel input[type="number"],
@@ -150,7 +158,9 @@ header h1 {
 input[type="text"],
 input:not([type]),
 input[type="number"],
-input[type="search"] {
+input[type="search"],
+select,
+textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -164,10 +174,18 @@ input[type="search"] {
 input[type="text"]:focus,
 input:not([type]):focus,
 input[type="number"]:focus,
-input[type="search"]:focus {
+input[type="search"]:focus,
+select:focus,
+textarea:focus {
   outline: none;
   border-color: #93c5fd;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 78px;
+  font-family: Consolas, "Courier New", monospace;
 }
 
 input[type="range"] {
@@ -248,6 +266,60 @@ input[type="range"] {
   background: var(--surface-2);
 }
 
+.compact-controls {
+  padding: 8px 12px;
+}
+
+.method-hint {
+  min-height: 24px;
+  max-height: 126px;
+  overflow: auto;
+  margin: -4px 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.method-hint div {
+  margin-bottom: 4px;
+}
+
+.method-hint code {
+  font-family: Consolas, "Liberation Mono", monospace;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.step-explanation {
+  margin-top: 10px;
+  min-height: 86px;
+  max-height: 138px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: #334155;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.stage-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
 .controls-row {
   display: flex;
   flex-wrap: wrap;
@@ -300,7 +372,6 @@ input[type="range"] {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
-#methods,
 #physics {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -308,14 +379,95 @@ input[type="range"] {
   box-shadow: var(--shadow);
 }
 
-#methods h2,
 #physics h2 {
   margin-top: 0;
+}
+
+.methods-layout {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.methods-controls-panel h2,
+.methods-controls-panel h3 {
+  margin: 0 0 10px;
+}
+
+.methods-controls-panel > label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.methods-output-panel .controls-row .label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.methods-controls-panel .inline-inputs input {
+  width: 78px;
+}
+
+.methods-output-panel {
+  min-width: 0;
+}
+
+.methods-plot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.methods-plot {
+  min-height: 300px;
+  height: 36vh;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+#odeTimePlot {
+  min-height: 360px;
+}
+
+.step-zoom-panel {
+  display: none;
+}
+
+.step-zoom-panel.active {
+  display: block;
+}
+
+.step-zoom-plot {
+  min-height: 220px;
+  height: 26vh;
+}
+
+#odePlotBtn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 @media (max-width: 1100px) {
   .layout {
     flex-direction: column;
+  }
+
+  .methods-layout {
+    grid-template-columns: 1fr;
   }
 
   .controls-panel {
@@ -327,6 +479,10 @@ input[type="range"] {
   #plot {
     height: 60vh;
     min-height: 500px;
+  }
+
+  .methods-plot {
+    height: 34vh;
   }
 }
 
@@ -377,6 +533,7 @@ input[type="range"] {
     height: 58vh;
     min-height: 420px;
   }
+
 }
 
 @media (max-width: 640px) {
@@ -430,6 +587,14 @@ input[type="range"] {
   #plot {
     height: 52vh;
     min-height: 340px;
+  }
+
+  .methods-controls-panel .inline-inputs input {
+    width: 100px;
+  }
+
+  .methods-plot {
+    min-height: 280px;
   }
 
   #valuesBox {

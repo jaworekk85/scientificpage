@@ -55,10 +55,16 @@
 <h3>Integral</h3>
 <input id="int" value="-2*cos(x)+8*sin(x/2)">
 
+<div class="row inline-inputs">
+  <label>x0 <input id="intX0" type="number" step="0.1" value="0"></label>
+</div>
+<label>F(x0) = <span id="f0Val">0</span></label>
+<input id="f0Slider" type="range" min="-10" max="10" step="0.1" value="0">
+<label>C = <span id="cVal">0</span></label>
+
 <label>h = <span id="hIntVal">0.01</span></label>
 <input id="hInt" type="range" min="0.001" max="1" step="0.001" value="0.01">
-<label>C = <span id="cVal">0</span></label>
-<input id="cSlider" type="range" min="-10" max="10" step="0.1" value="0">
+<div id="integralStatus" class="status"></div>
 
 <button id="plotBtn">Plot</button>
 
@@ -73,7 +79,6 @@
     <span class="label">Function</span>
     <label><input type="checkbox" data-type="function" checked> f(x)</label>
   </div>
-
   <div class="controls-row">
     <span class="label">Derivatives</span>
     <label><input type="checkbox" data-type="analytic"> analytic</label>
@@ -81,7 +86,6 @@
     <label><input type="checkbox" data-type="num_asym"> asym</label>
     <label><input type="checkbox" data-type="tangent"> tangents</label>
   </div>
-  
   <div class="controls-row">
 	<span class="label">2nd Derivative</span>
 	<label><input type="checkbox" data-type="analytic2"> analytic</label>
@@ -92,9 +96,12 @@
   <div class="controls-row">
     <span class="label">Integral</span>
     <label><input type="checkbox" data-type="integral"> integral</label>
-	<label><input type="checkbox" data-type="num_rect"> rect</label>
+	<label><input type="checkbox" data-type="num_left"> left</label>
+	<label><input type="checkbox" data-type="num_right"> right</label>
+	<label><input type="checkbox" data-type="num_mid"> midpoint</label>
 	<label><input type="checkbox" data-type="num_trap"> trap</label>
-    <label><input type="checkbox" data-type="rectangles"> rectangles</label>
+	<label><input type="checkbox" data-type="num_simpson"> Simpson</label>
+    <label><input type="checkbox" data-type="integral_shapes"> shapes</label>
   </div>
 
   <div class="controls-row">
@@ -112,13 +119,67 @@
 </div>
 
 <div class="view" id="methods">
-<h2>Numerical Methods (coming soon)</h2>
+<div class="methods-layout">
+  <div class="panel methods-controls-panel">
+    <h2>Numerical Methods</h2>
+
+    <label>equation y' = f(t, y)</label>
+    <input id="odeEquation" value="y">
+
+    <div class="row inline-inputs">
+      <label>t0 <input id="odeT0" type="number" step="0.1"></label>
+      <label>t1 <input id="odeT1" type="number" step="0.1"></label>
+      <label>h <input id="odeH" type="number" step="0.001"></label>
+    </div>
+
+    <label>start value y(t0)</label>
+    <input id="odeY0" type="number" step="0.1" value="1">
+
+    <label>known solution y(t)</label>
+    <input id="odeExact" value="exp(t)">
+
+    <div id="odeStatus" class="status"></div>
+    <button id="odePlotBtn">Plot methods</button>
+  </div>
+
+  <div class="panel methods-output-panel">
+    <div class="controls" id="odeMethodControls"></div>
+    <div id="odeMethodHint" class="method-hint"></div>
+    <div class="controls compact-controls">
+      <div class="controls-row">
+        <span class="label">Display</span>
+        <label><input type="checkbox" id="odeShowPoints" checked> step points</label>
+        <label><input type="checkbox" id="odeShowStepView" checked> show on hover</label>
+        <label><input type="checkbox" id="odeFocusHover" checked> focus method</label>
+        <label><input type="checkbox" id="odeSlopeField"> slope field</label>
+      </div>
+    </div>
+    <div class="methods-plot-grid">
+      <div id="odeTimePlot" class="methods-plot"></div>
+      <div id="odeStepZoomPanel" class="step-zoom-panel">
+        <div id="odeStepZoomPlot" class="methods-plot step-zoom-plot"></div>
+      </div>
+      <div id="odeStepText" class="step-explanation"></div>
+      <div id="odeErrorPlot" class="methods-plot"></div>
+    </div>
+  </div>
+</div>
 </div>
 
 <div class="view" id="physics">
 <h2>Physics Simulation (coming soon)</h2>
 </div>
 
+<script src="constants.js"></script>
+<script src="dom.js"></script>
+<script src="math-utils.js"></script>
+<script src="plot-state.js"></script>
+<script src="plot-core.js"></script>
+<script src="plot-interactions.js"></script>
+<script src="ode-methods.js"></script>
+<script src="methods-lab.js"></script>
+<script src="ui.js"></script>
+<script src="plotter.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
