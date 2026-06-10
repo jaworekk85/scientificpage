@@ -9,6 +9,7 @@
   const STEP_ZOOM_RATIO_THRESHOLD = 0.06;
 
   function setupMethodsLab() {
+    bindMethodSubpanels();
     populateMethodControls();
     bindMethodsEvents();
     setDefaultMethods();
@@ -47,7 +48,7 @@
   function bindMethodsEvents() {
     document.getElementById("odePlotBtn").addEventListener("click", plotOdeMethods);
 
-    document.querySelectorAll("#methods input, #methods textarea").forEach(el => {
+    document.querySelectorAll("#firstOrderPanel input, #firstOrderPanel textarea").forEach(el => {
       el.addEventListener("change", plotOdeMethods);
     });
 
@@ -69,11 +70,38 @@
     document.querySelector('[data-tab="methods"]').addEventListener("click", () => {
       window.setTimeout(() => {
         plotOdeMethods();
+        if (typeof window.plotSecondOrderMethods === "function") window.plotSecondOrderMethods();
         ["odeTimePlot", "odeStepZoomPlot", "odeErrorPlot"].forEach(id => {
           const el = document.getElementById(id);
           if (el) window.Plotly.Plots.resize(el);
         });
       }, 0);
+    });
+  }
+
+  function bindMethodSubpanels() {
+    document.querySelectorAll("[data-method-panel]").forEach(button => {
+      button.addEventListener("click", () => {
+        const panelId = button.dataset.methodPanel;
+        document.querySelectorAll("[data-method-panel]").forEach(item => {
+          item.classList.toggle("active", item === button);
+        });
+        document.querySelectorAll(".method-subpanel").forEach(panel => {
+          panel.classList.toggle("active", panel.id === panelId);
+        });
+
+        window.setTimeout(() => {
+          if (panelId === "firstOrderPanel") {
+            plotOdeMethods();
+            ["odeTimePlot", "odeStepZoomPlot", "odeErrorPlot"].forEach(id => {
+              const el = document.getElementById(id);
+              if (el) window.Plotly.Plots.resize(el);
+            });
+          } else if (typeof window.plotSecondOrderMethods === "function") {
+            window.plotSecondOrderMethods();
+          }
+        }, 0);
+      });
     });
   }
 
@@ -300,11 +328,39 @@
       line: { color: "#ffffff", width: 1 }
     }));
 
-    return [...guideShapes, ...slopeShapes, ...pointShapes];
+    const startRing = {
+      type: "circle",
+      x0: detail.current.t - pointRadiusX * 1.7,
+      x1: detail.current.t + pointRadiusX * 1.7,
+      y0: detail.current.y - pointRadiusY * 1.7,
+      y1: detail.current.y + pointRadiusY * 1.7,
+      fillcolor: "rgba(255, 255, 255, 0)",
+      line: { color: "#dc2626", width: 2.2 }
+    };
+
+    return [...guideShapes, ...slopeShapes, ...pointShapes, startRing];
   }
 
   function buildStepAnnotations(detail) {
-    const stageAnnotations = detail.stages.map((stage, index) => ({
+    const startAnnotation = {
+      x: detail.current.t,
+      y: detail.current.y,
+      text: "y_n",
+      showarrow: false,
+      xanchor: "right",
+      yanchor: "bottom",
+      xshift: -9,
+      yshift: 9,
+      bgcolor: "rgba(255, 255, 255, 0.88)",
+      bordercolor: "rgba(220, 38, 38, 0.72)",
+      borderpad: 2,
+      font: {
+        size: 11,
+        color: "#dc2626"
+      }
+    };
+
+    const stageAnnotations = [startAnnotation, ...detail.stages.map((stage, index) => ({
       x: stage.t,
       y: stage.y,
       text: escapeHtml(compactStageLabel(stage.label, index)),
@@ -320,7 +376,7 @@
         size: 10,
         color: stageColor(index)
       }
-    }));
+    }))];
 
     if (!hasFinalStageLabel(detail)) {
       stageAnnotations.push({
@@ -511,6 +567,7 @@
   function renderStepText(detail) {
     document.getElementById("odeStepText").innerHTML = [
       `<strong>${escapeHtml(detail.method.label)}: step ${detail.index}</strong>`,
+      "red ring = start y_n",
       formatStageSummaryHtml(detail.stages),
       ...detail.formulas.map(line => escapeHtml(line))
     ].map(line => `<div>${line}</div>`).join("");

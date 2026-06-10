@@ -9,6 +9,13 @@
 <script src="https://cdn.jsdelivr.net/npm/algebrite/dist/algebrite.bundle-for-browser.js"></script>
 <script src="https://unpkg.com/mathjs@7.0.0/dist/math.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+window.MathJax = {
+  tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]] },
+  svg: { fontCache: "global" }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 </head>
 
 <body>
@@ -119,55 +126,234 @@
 </div>
 
 <div class="view" id="methods">
-<div class="methods-layout">
-  <div class="panel methods-controls-panel">
-    <h2>Numerical Methods</h2>
+<div class="methods-subtabs">
+  <button class="active" data-method-panel="firstOrderPanel">1st order y' = f(t,y)</button>
+  <button data-method-panel="secondOrderPanel">2nd order y'' = f(t,y,v)</button>
+</div>
 
-    <label>equation y' = f(t, y)</label>
-    <input id="odeEquation" value="y">
+<div class="method-subpanel active" id="firstOrderPanel">
+  <div class="methods-layout">
+    <div class="panel methods-controls-panel">
+      <h2>Numerical Methods</h2>
 
-    <div class="row inline-inputs">
-      <label>t0 <input id="odeT0" type="number" step="0.1"></label>
-      <label>t1 <input id="odeT1" type="number" step="0.1"></label>
-      <label>h <input id="odeH" type="number" step="0.001"></label>
+      <label>equation y' = f(t, y)</label>
+      <input id="odeEquation" value="y">
+
+      <div class="row inline-inputs">
+        <label>t0 <input id="odeT0" type="number" step="0.1"></label>
+        <label>t1 <input id="odeT1" type="number" step="0.1"></label>
+        <label>h <input id="odeH" type="number" step="0.001"></label>
+      </div>
+
+      <label>start value y(t0)</label>
+      <input id="odeY0" type="number" step="0.1" value="1">
+
+      <label>known solution y(t)</label>
+      <input id="odeExact" value="exp(t)">
+
+      <div id="odeStatus" class="status"></div>
+      <button id="odePlotBtn">Plot methods</button>
     </div>
 
-    <label>start value y(t0)</label>
-    <input id="odeY0" type="number" step="0.1" value="1">
-
-    <label>known solution y(t)</label>
-    <input id="odeExact" value="exp(t)">
-
-    <div id="odeStatus" class="status"></div>
-    <button id="odePlotBtn">Plot methods</button>
+    <div class="panel methods-output-panel">
+      <div class="controls" id="odeMethodControls"></div>
+      <div id="odeMethodHint" class="method-hint"></div>
+      <div class="controls compact-controls">
+        <div class="controls-row">
+          <span class="label">Display</span>
+          <label><input type="checkbox" id="odeShowPoints" checked> step points</label>
+          <label><input type="checkbox" id="odeShowStepView" checked> show on hover</label>
+          <label><input type="checkbox" id="odeFocusHover" checked> focus method</label>
+          <label><input type="checkbox" id="odeSlopeField"> slope field</label>
+        </div>
+      </div>
+      <div class="methods-plot-grid">
+        <div id="odeTimePlot" class="methods-plot"></div>
+        <div id="odeStepZoomPanel" class="step-zoom-panel">
+          <div id="odeStepZoomPlot" class="methods-plot step-zoom-plot"></div>
+        </div>
+        <div id="odeStepText" class="step-explanation"></div>
+        <div id="odeErrorPlot" class="methods-plot"></div>
+      </div>
+    </div>
   </div>
+</div>
 
-  <div class="panel methods-output-panel">
-    <div class="controls" id="odeMethodControls"></div>
-    <div id="odeMethodHint" class="method-hint"></div>
-    <div class="controls compact-controls">
-      <div class="controls-row">
-        <span class="label">Display</span>
-        <label><input type="checkbox" id="odeShowPoints" checked> step points</label>
-        <label><input type="checkbox" id="odeShowStepView" checked> show on hover</label>
-        <label><input type="checkbox" id="odeFocusHover" checked> focus method</label>
-        <label><input type="checkbox" id="odeSlopeField"> slope field</label>
+<div class="method-subpanel" id="secondOrderPanel">
+  <div class="methods-layout">
+    <div class="panel methods-controls-panel">
+      <h2>Second Order ODE</h2>
+
+      <label>equation y'' = f(t, y, v)</label>
+      <input id="ode2Equation" value="-y">
+
+      <div class="row inline-inputs">
+        <label>t0 <input id="ode2T0" type="number" step="0.1"></label>
+        <label>t1 <input id="ode2T1" type="number" step="0.1"></label>
+        <label>h <input id="ode2H" type="number" step="0.001"></label>
       </div>
+
+      <div class="row inline-inputs">
+        <label>y(t0) <input id="ode2Y0" type="number" step="0.1" value="1"></label>
+        <label>v(t0) <input id="ode2V0" type="number" step="0.1" value="0"></label>
+      </div>
+
+      <label>known solution y(t)</label>
+      <input id="ode2ExactY" value="cos(t)">
+
+      <label>known velocity v(t)</label>
+      <input id="ode2ExactV" value="-sin(t)">
+
+      <div id="ode2Status" class="status"></div>
+      <button id="ode2PlotBtn">Plot methods</button>
     </div>
-    <div class="methods-plot-grid">
-      <div id="odeTimePlot" class="methods-plot"></div>
-      <div id="odeStepZoomPanel" class="step-zoom-panel">
-        <div id="odeStepZoomPlot" class="methods-plot step-zoom-plot"></div>
+
+    <div class="panel methods-output-panel">
+      <div class="controls" id="ode2MethodControls"></div>
+      <div id="ode2MethodHint" class="method-hint"></div>
+      <div class="controls compact-controls">
+        <div class="controls-row">
+          <span class="label">Display</span>
+          <label><input type="checkbox" id="ode2ShowPoints" checked> step points</label>
+          <label><input type="checkbox" id="ode2ShowStepView" checked> show on hover</label>
+          <label><input type="checkbox" id="ode2FocusHover" checked> focus method</label>
+          <label><input type="checkbox" id="ode2ShowVelocity" checked> velocity plot</label>
+          <label><input type="checkbox" id="ode2ShowPhase"> large phase plot</label>
+        </div>
       </div>
-      <div id="odeStepText" class="step-explanation"></div>
-      <div id="odeErrorPlot" class="methods-plot"></div>
+      <div class="methods-plot-grid">
+        <div id="ode2TimePlot" class="methods-plot"></div>
+        <div id="ode2StepZoomPanel" class="step-zoom-panel">
+          <div class="step-zoom-toolbar">
+            <div class="step-nav">
+              <button type="button" id="ode2PrevStep" aria-label="Previous step">&lt;</button>
+              <span id="ode2PinnedStepLabel">tap a step</span>
+              <button type="button" id="ode2NextStep" aria-label="Next step">&gt;</button>
+            </div>
+            <div class="zoom-view-tabs">
+              <button type="button" class="active" data-ode2-zoom-view="y">y</button>
+              <button type="button" data-ode2-zoom-view="v">v</button>
+              <button type="button" data-ode2-zoom-view="phase">phase</button>
+            </div>
+          </div>
+          <div class="step-zoom-grid">
+            <div id="ode2StepZoomYPlot" class="methods-plot step-zoom-plot" data-zoom-panel="y"></div>
+            <div id="ode2StepZoomVPlot" class="methods-plot step-zoom-plot" data-zoom-panel="v"></div>
+            <div id="ode2StepZoomPhasePlot" class="methods-plot step-zoom-plot" data-zoom-panel="phase"></div>
+          </div>
+        </div>
+        <div id="ode2StepText" class="step-explanation"></div>
+        <div id="ode2VelocityPlot" class="methods-plot"></div>
+        <div id="ode2PhasePlot" class="methods-plot"></div>
+        <div id="ode2ErrorPlot" class="methods-plot"></div>
+      </div>
     </div>
   </div>
 </div>
 </div>
 
 <div class="view" id="physics">
-<h2>Physics Simulation (coming soon)</h2>
+<div class="physics-layout">
+  <div class="panel physics-controls-panel">
+    <h2>Physics</h2>
+
+    <label>system</label>
+    <select id="physicsSystem">
+      <option value="oscillator">oscillator</option>
+      <option value="pendulum">pendulum</option>
+      <option value="rlc">RLC circuit</option>
+      <option value="predatorPrey">predator-prey</option>
+      <option value="neuron">neuron</option>
+    </select>
+
+    <div class="physics-control-block" data-physics-param="secondMethod">
+      <label>method</label>
+      <select id="physicsMethod"></select>
+    </div>
+
+    <div id="physicsEquation" class="equation-display"></div>
+
+    <div class="row inline-inputs">
+      <label>t0 <input id="physicsT0" type="number" step="0.1" value="0"></label>
+      <label>t1 <input id="physicsT1" type="number" step="0.1" value="20"></label>
+      <label>h <input id="physicsH" type="number" step="0.001" value="0.03"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="initial">
+      <label><span id="physicsY0Label">x0</span> <input id="physicsY0" type="number" step="0.1" value="1"></label>
+      <label><span id="physicsV0Label">v0</span> <input id="physicsV0" type="number" step="0.1" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="omega">
+      <label>&omega; <input id="physicsOmega" type="number" step="0.1" value="1"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="damping">
+      <label>&gamma; <input id="physicsGamma" type="number" step="0.01" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="drive">
+      <label>A <input id="physicsDriveA" type="number" step="0.05" value="0"></label>
+      <label>&Omega; <input id="physicsDriveOmega" type="number" step="0.05" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="pendulum">
+      <label>length <input id="physicsLength" type="number" step="0.1" value="1"></label>
+      <label>g <input id="physicsG" type="number" step="0.1" value="9.81"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rlc">
+      <label>L <input id="physicsCircuitL" type="number" step="0.1" value="1"></label>
+      <label>C <input id="physicsCircuitC" type="number" step="0.1" value="1"></label>
+      <label>R <input id="physicsCircuitR" type="number" step="0.05" value="0.2"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rlc">
+      <label>V0 <input id="physicsCircuitV" type="number" step="0.05" value="0"></label>
+      <label>&Omega; <input id="physicsCircuitOmega" type="number" step="0.05" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="predator">
+      <label>&alpha; <input id="physicsPredAlpha" type="number" step="0.05" value="0.55"></label>
+      <label>&beta; <input id="physicsPredBeta" type="number" step="0.005" value="0.02"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="predator">
+      <label>&delta; <input id="physicsPredDelta" type="number" step="0.005" value="0.01"></label>
+      <label>&gamma; <input id="physicsPredGamma" type="number" step="0.05" value="0.4"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="neuron">
+      <label>a <input id="physicsNeuronA" type="number" step="0.05" value="0.7"></label>
+      <label>b <input id="physicsNeuronB" type="number" step="0.05" value="0.8"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="neuron">
+      <label>&tau; <input id="physicsNeuronTau" type="number" step="0.1" value="12.5"></label>
+      <label>I <input id="physicsNeuronI" type="number" step="0.05" value="0.7"></label>
+    </div>
+
+    <div class="row inline-inputs">
+      <label>animation speed <input id="physicsSpeed" type="number" step="0.1" value="1"></label>
+    </div>
+
+    <div id="physicsStatus" class="status"></div>
+  </div>
+
+  <div class="panel physics-output-panel">
+    <canvas id="physicsCanvas" class="physics-canvas" width="900" height="360"></canvas>
+    <div class="physics-animation-controls">
+      <button id="physicsPlayBtn" type="button">Play</button>
+      <input id="physicsTimeSlider" type="range" min="0" max="1" step="0.001" value="0">
+      <span id="physicsTimeLabel">t=0</span>
+    </div>
+    <div class="physics-plot-grid">
+      <div id="physicsTimePlot" class="methods-plot"></div>
+      <div id="physicsPhasePlot" class="methods-plot"></div>
+      <div id="physicsEnergyPlot" class="methods-plot"></div>
+    </div>
+  </div>
+</div>
 </div>
 
 <script src="js/core/constants.js"></script>
@@ -178,6 +364,9 @@
 <script src="js/plotter/plot-interactions.js"></script>
 <script src="js/methods/ode-methods.js"></script>
 <script src="js/methods/methods-lab.js"></script>
+<script src="js/methods/second-order-methods.js"></script>
+<script src="js/methods/second-order-lab.js"></script>
+<script src="js/physics/physics-lab.js"></script>
 <script src="js/core/ui.js"></script>
 <script src="js/plotter/plotter.js"></script>
 <script src="js/app.js"></script>

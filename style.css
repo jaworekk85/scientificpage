@@ -383,11 +383,179 @@ input[type="range"] {
   margin-top: 0;
 }
 
+.physics-layout {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.physics-controls-panel {
+  overflow: visible;
+}
+
+.physics-controls-panel > label {
+  display: block;
+  margin: 8px 0 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.physics-control-block > label {
+  display: block;
+  margin: 8px 0 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.physics-controls-panel .inline-inputs input {
+  width: 86px;
+}
+
+.physics-controls-panel [data-physics-param].hidden {
+  display: none;
+}
+
+.equation-display {
+  min-height: 46px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: #0f172a;
+  font-size: 14px;
+  overflow: visible;
+}
+
+.equation-line {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.equation-line mjx-container {
+  max-width: 100%;
+}
+
+.equation-line mjx-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.equation-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.equation-params span {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.equation-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.equation-notes span {
+  overflow-wrap: anywhere;
+}
+
+.physics-output-panel {
+  min-width: 0;
+}
+
+.physics-canvas {
+  display: block;
+  width: 100%;
+  height: 300px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.physics-animation-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 12px;
+}
+
+.physics-animation-controls button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.physics-animation-controls span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.physics-plot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
 .methods-layout {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
+}
+
+.methods-subtabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.methods-subtabs button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.methods-subtabs button.active {
+  background: #ffffff;
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.method-subpanel {
+  display: none;
+}
+
+.method-subpanel.active {
+  display: block;
 }
 
 .methods-controls-panel h2,
@@ -443,12 +611,61 @@ input[type="range"] {
   display: block;
 }
 
-.step-zoom-plot {
-  min-height: 220px;
-  height: 26vh;
+.step-zoom-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-#odePlotBtn {
+.step-nav,
+.zoom-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.step-nav button,
+.zoom-view-tabs button {
+  min-width: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.zoom-view-tabs button.active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--accent);
+}
+
+#ode2PinnedStepLabel {
+  min-width: 84px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.step-zoom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.step-zoom-plot {
+  min-height: 210px;
+  height: 24vh;
+}
+
+#odePlotBtn,
+#ode2PlotBtn {
   width: 100%;
   margin-top: 12px;
   padding: 12px 16px;
@@ -470,6 +687,10 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
+  .physics-layout {
+    grid-template-columns: 1fr;
+  }
+
   .controls-panel {
     width: 100%;
     min-width: 0;
@@ -483,6 +704,22 @@ input[type="range"] {
 
   .methods-plot {
     height: 34vh;
+  }
+
+  .physics-canvas {
+    height: 260px;
+  }
+
+  .step-zoom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-zoom-grid [data-zoom-panel] {
+    display: none;
+  }
+
+  .step-zoom-grid [data-zoom-panel].active {
+    display: block;
   }
 }
 
@@ -593,8 +830,16 @@ input[type="range"] {
     width: 100px;
   }
 
+  .physics-controls-panel .inline-inputs input {
+    width: 100px;
+  }
+
   .methods-plot {
     min-height: 280px;
+  }
+
+  .physics-animation-controls {
+    grid-template-columns: 1fr;
   }
 
   #valuesBox {
