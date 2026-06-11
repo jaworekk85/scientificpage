@@ -414,6 +414,67 @@ input[type="range"] {
   width: 86px;
 }
 
+.physics-controls-panel .inline-inputs select {
+  min-width: 126px;
+}
+
+.physics-controls-panel [data-physics-param="resonance"] {
+  gap: 8px;
+}
+
+.physics-controls-panel [data-physics-param="resonance"] label,
+.physics-controls-panel [data-physics-param="resonanceCompare"] label {
+  gap: 4px;
+}
+
+.physics-controls-panel [data-physics-param="resonance"] input,
+.physics-controls-panel [data-physics-param="resonanceCompare"] input {
+  width: 62px;
+}
+
+.physics-controls-panel [data-physics-param="resonance"] select {
+  min-width: 92px;
+}
+
+.physics-controls-panel [data-physics-param="particleInitial"],
+.physics-controls-panel [data-physics-param="coupled"],
+.physics-controls-panel [data-physics-param="coupledInitial"] {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.physics-controls-panel [data-physics-param="particleInitial"] input,
+.physics-controls-panel [data-physics-param="coupled"] input,
+.physics-controls-panel [data-physics-param="coupledInitial"] input {
+  width: 66px;
+}
+
+.physics-compare-block {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.physics-compare-block .inline-inputs {
+  margin-top: 8px;
+}
+
+.physics-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.physics-checkbox-label input,
+.physics-controls-panel .inline-inputs .physics-checkbox-label input {
+  width: auto;
+}
+
 .physics-controls-panel [data-physics-param].hidden {
   display: none;
 }
@@ -507,6 +568,9 @@ input[type="range"] {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+  min-width: 58px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .physics-plot-grid {
@@ -597,6 +661,10 @@ input[type="range"] {
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
+}
+
+.methods-plot.hidden {
+  display: none;
 }
 
 #odeTimePlot {

@@ -259,16 +259,44 @@ window.MathJax = {
 
     <label>system</label>
     <select id="physicsSystem">
-      <option value="oscillator">oscillator</option>
-      <option value="pendulum">pendulum</option>
-      <option value="rlc">RLC circuit</option>
-      <option value="predatorPrey">predator-prey</option>
-      <option value="neuron">neuron</option>
+      <optgroup label="Mechanical">
+        <option value="oscillator">oscillator</option>
+        <option value="pendulum">pendulum</option>
+        <option value="projectile">projectile motion</option>
+        <option value="verticalBounce">vertical bounce</option>
+        <option value="coupledOscillators">coupled oscillators</option>
+      </optgroup>
+      <optgroup label="Fields & circuits">
+        <option value="chargedParticle">charged particle: E + B fields</option>
+        <option value="rlc">RLC circuit</option>
+      </optgroup>
+      <optgroup label="Biological / population">
+        <option value="predatorPrey">predator-prey</option>
+        <option value="neuron">neuron</option>
+      </optgroup>
     </select>
 
     <div class="physics-control-block" data-physics-param="secondMethod">
       <label>method</label>
       <select id="physicsMethod"></select>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="oscillatorMode">
+      <label>oscillator mode
+        <select id="physicsOscillatorMode">
+          <option value="simulation">simulation</option>
+          <option value="resonance">resonance</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="oscillatorAnimation">
+      <label>animation
+        <select id="physicsOscillatorAnimation">
+          <option value="spring">spring block</option>
+          <option value="potential">parabolic well</option>
+        </select>
+      </label>
     </div>
 
     <div id="physicsEquation" class="equation-display"></div>
@@ -294,12 +322,102 @@ window.MathJax = {
 
     <div class="row inline-inputs" data-physics-param="drive">
       <label>A <input id="physicsDriveA" type="number" step="0.05" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="driveOmega">
       <label>&Omega; <input id="physicsDriveOmega" type="number" step="0.05" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="resonance">
+      <label>&Omega; min <input id="physicsResOmegaMin" type="number" step="0.05" value="0.1"></label>
+      <label>&Omega; max <input id="physicsResOmegaMax" type="number" step="0.05" value="2.5"></label>
+      <label>samples <input id="physicsResSamples" type="number" step="1" value="48"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="resonance">
+      <label>&Omega;A <input id="physicsResOmegaA" type="number" step="0.05" value="0.6"></label>
+      <label>click sets
+        <select id="physicsResPickTarget">
+          <option value="A">&Omega;A</option>
+          <option value="B">&Omega;B</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="resonanceCompare">
+      <label>&Omega;B <input id="physicsResOmegaB" type="number" step="0.05" value="1"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="resonance">
+      <label>settle cycles <input id="physicsResSettleCycles" type="number" step="1" value="20"></label>
+      <label>measure cycles <input id="physicsResMeasureCycles" type="number" step="1" value="8"></label>
     </div>
 
     <div class="row inline-inputs" data-physics-param="pendulum">
       <label>length <input id="physicsLength" type="number" step="0.1" value="1"></label>
       <label>g <input id="physicsG" type="number" step="0.1" value="9.81"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="particleInitial">
+      <label>x0 <input id="physicsParticleX0" type="number" step="0.1" value="0"></label>
+      <label>y0 <input id="physicsParticleY0" type="number" step="0.1" value="0"></label>
+      <label>vx0 <input id="physicsParticleVx0" type="number" step="0.1" value="5"></label>
+      <label>vy0 <input id="physicsParticleVy0" type="number" step="0.1" value="6"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="phaseProjection">
+      <label>phase view
+        <select id="physicsPhaseProjection">
+          <option value="vx-vy">vx vs vy</option>
+          <option value="x-y">x vs y</option>
+          <option value="x-vx">x vs vx</option>
+          <option value="y-vy">y vs vy</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="bounceInitial">
+      <label>y0 <input id="physicsBounceY0" type="number" step="0.1" value="3"></label>
+      <label>vy0 <input id="physicsBounceVy0" type="number" step="0.1" value="8"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="particleDrag">
+      <label>drag <input id="physicsParticleDrag" type="number" step="0.01" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="projectile">
+      <label>g <input id="physicsProjectileG" type="number" step="0.1" value="9.81"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="bounce">
+      <label>restitution <input id="physicsBounceRestitution" type="number" min="0" max="1" step="0.05" value="0.8"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="chargedParticle">
+      <label>q <input id="physicsParticleCharge" type="number" step="0.1" value="1"></label>
+      <label>m <input id="physicsParticleMass" type="number" step="0.1" value="1"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="electricField">
+      <label>Ex <input id="physicsElectricEx" type="number" step="0.1" value="1"></label>
+      <label>Ey <input id="physicsElectricEy" type="number" step="0.1" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="magneticField">
+      <label>Bz <input id="physicsMagneticB" type="number" step="0.1" value="1"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="coupled">
+      <label>&omega;0 <input id="physicsCoupledOmega" type="number" step="0.1" value="1"></label>
+      <label>&kappa; <input id="physicsCoupledKappa" type="number" step="0.1" value="0.35"></label>
+      <label>&gamma; <input id="physicsCoupledGamma" type="number" step="0.01" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="coupledInitial">
+      <label>x1(0) <input id="physicsCoupledX1" type="number" step="0.1" value="1"></label>
+      <label>v1(0) <input id="physicsCoupledV1" type="number" step="0.1" value="0"></label>
+      <label>x2(0) <input id="physicsCoupledX2" type="number" step="0.1" value="0"></label>
+      <label>v2(0) <input id="physicsCoupledV2" type="number" step="0.1" value="0"></label>
     </div>
 
     <div class="row inline-inputs" data-physics-param="rlc">
@@ -321,6 +439,48 @@ window.MathJax = {
     <div class="row inline-inputs" data-physics-param="predator">
       <label>&delta; <input id="physicsPredDelta" type="number" step="0.005" value="0.01"></label>
       <label>&gamma; <input id="physicsPredGamma" type="number" step="0.05" value="0.4"></label>
+    </div>
+
+    <div class="physics-compare-block" data-physics-param="compare">
+      <label class="physics-checkbox-label">
+        <input id="physicsCompareEnabled" type="checkbox">
+        compare with second case
+      </label>
+      <div class="row inline-inputs" data-physics-param="compareInitial">
+        <label><span id="physicsCompareY0Label">xB(0)</span> <input id="physicsCompareY0" type="number" step="0.1" value="1.4"></label>
+        <label><span id="physicsCompareV0Label">vB(0)</span> <input id="physicsCompareV0" type="number" step="0.1" value="0"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="compareOscillator">
+        <label>&omega;B <input id="physicsCompareOmega" type="number" step="0.1" value="1.2"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="comparePendulum">
+        <label>B model
+          <select id="physicsPendulumCompareMode">
+            <option value="custom">second pendulum</option>
+            <option value="linear">linear model</option>
+          </select>
+        </label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="comparePendulumCustom">
+        <label>LB <input id="physicsCompareLength" type="number" step="0.1" value="1"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="compareRlc">
+        <label>LB <input id="physicsCompareCircuitL" type="number" step="0.1" value="1"></label>
+        <label>CB <input id="physicsCompareCircuitC" type="number" step="0.1" value="1"></label>
+        <label>RB <input id="physicsCompareCircuitR" type="number" step="0.05" value="0.4"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="compareRlc">
+        <label>V0B <input id="physicsCompareCircuitV" type="number" step="0.05" value="0"></label>
+        <label>&Omega;B <input id="physicsCompareCircuitOmega" type="number" step="0.05" value="0"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="comparePredator">
+        <label>&alpha;B <input id="physicsComparePredAlpha" type="number" step="0.05" value="0.55"></label>
+        <label>&beta;B <input id="physicsComparePredBeta" type="number" step="0.005" value="0.024"></label>
+      </div>
+      <div class="row inline-inputs" data-physics-param="comparePredator">
+        <label>&delta;B <input id="physicsComparePredDelta" type="number" step="0.005" value="0.01"></label>
+        <label>&gamma;B <input id="physicsComparePredGamma" type="number" step="0.05" value="0.4"></label>
+      </div>
     </div>
 
     <div class="row inline-inputs" data-physics-param="neuron">
@@ -351,6 +511,7 @@ window.MathJax = {
       <div id="physicsTimePlot" class="methods-plot"></div>
       <div id="physicsPhasePlot" class="methods-plot"></div>
       <div id="physicsEnergyPlot" class="methods-plot"></div>
+      <div id="physicsExtraPlot" class="methods-plot hidden"></div>
     </div>
   </div>
 </div>

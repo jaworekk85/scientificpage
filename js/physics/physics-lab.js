@@ -1,6 +1,9 @@
 (function () {
   let currentModel = null;
   let currentResult = null;
+  let currentCompareModel = null;
+  let currentCompareResult = null;
+  let currentResonanceScan = null;
   let animationFrame = null;
   let isPlaying = false;
   let animationStart = 0;
@@ -55,6 +58,16 @@
         runPhysicsSimulation();
       });
     }
+    const oscillatorModeSelect = document.getElementById("physicsOscillatorMode");
+    if (oscillatorModeSelect) {
+      oscillatorModeSelect.addEventListener("change", () => {
+        const driveInput = document.getElementById("physicsDriveA");
+        if (oscillatorModeSelect.value === "resonance" && Math.abs(parseFloat(driveInput.value) || 0) < 1e-9) {
+          driveInput.value = 1;
+        }
+        updatePhysicsControls();
+      });
+    }
     document.querySelectorAll("#physics .physics-controls-panel input:not(#physicsSpeed), #physics .physics-controls-panel select:not(#physicsSystem)").forEach(el => {
       el.addEventListener("change", runPhysicsSimulation);
     });
@@ -92,7 +105,7 @@
         resizeCanvasToDisplay();
         lastPlotCursorUpdate = 0;
         drawFrame(animationT);
-        ["physicsTimePlot", "physicsPhasePlot", "physicsEnergyPlot"].forEach(id => {
+        ["physicsTimePlot", "physicsPhasePlot", "physicsEnergyPlot", "physicsExtraPlot"].forEach(id => {
           const el = document.getElementById(id);
           if (el) window.Plotly.Plots.resize(el);
         });
@@ -103,46 +116,171 @@
   function runPhysicsSimulation() {
     if (!window.SecondOrderMethods) return;
 
+    const wasPlaying = isPlaying;
+    const previousT = animationT;
     const model = readModel();
     const methodKey = document.getElementById("physicsMethod").value;
 
     try {
-      if (model.mode === "planar") {
-        currentResult = simulatePlanarSystem(model, methodKey);
-      } else if (model.mode === "circuitFirstOrder") {
-        currentResult = simulateCircuitFirstOrder(model, methodKey);
+      if (model.analysisMode === "resonance") {
+        currentModel = resonanceVariantModel(model, model.resonance.omegaA, "A");
+        const displayTime = model.resonance.measureCycles * Math.max(
+          resonancePeriod(model, model.resonance.omegaA),
+          model.resonance.compare ? resonancePeriod(model, model.resonance.omegaB) : resonancePeriod(model, model.resonance.omegaA)
+        );
+        currentCompareModel = model.resonance.compare ? resonanceVariantModel(model, model.resonance.omegaB, "B") : null;
+        currentResult = simulateResonanceResponse(currentModel, methodKey, displayTime);
+        currentCompareResult = currentCompareModel ? simulateResonanceResponse(currentCompareModel, methodKey, displayTime) : null;
+        currentResonanceScan = buildResonanceScan(model, methodKey);
       } else {
-        const config = {
-          equation: model.equation,
-          t0: model.t0,
-          t1: model.t1,
-          h: model.h,
-          y0: model.y0,
-          v0: model.v0
-        };
-        currentResult = window.SecondOrderMethods.simulateSecondOrder(config, methodKey);
+        currentResult = simulatePhysicsModel(model, methodKey);
+        currentModel = model;
+        currentCompareModel = buildCompareModel(model);
+        currentCompareResult = currentCompareModel ? simulatePhysicsModel(currentCompareModel, methodKey) : null;
+        currentResonanceScan = null;
       }
-      currentModel = model;
       updatePhysicsControls(model);
       renderEquation(model);
       document.getElementById("physicsStatus").textContent = physicsStatusText(model, currentResult);
-      drawPhysicsPlots(model, currentResult);
-      animationT = model.t0;
-      animationStart = performance.now();
-      isPlaying = false;
-      document.getElementById("physicsPlayBtn").textContent = "Play";
-      document.getElementById("physicsTimeSlider").value = 0;
+      if (currentModel.analysisMode === "resonance") {
+        drawResonancePlots(currentModel, currentCompareModel, currentResult, currentCompareResult, currentResonanceScan);
+      } else {
+        drawPhysicsPlots(model, currentResult);
+      }
+      const t0 = currentResult.points[0].t;
+      const t1 = currentResult.points[currentResult.points.length - 1].t;
+      animationT = wasPlaying ? clamp(previousT, t0, t1) : t0;
+      animationStart = performance.now() - (animationT - t0) * 1000 / getSpeed();
+      isPlaying = wasPlaying;
+      document.getElementById("physicsPlayBtn").textContent = isPlaying ? "Pause" : "Play";
+      document.getElementById("physicsTimeSlider").value = String(clamp((animationT - t0) / (t1 - t0 || 1), 0, 1));
       lastPlotCursorUpdate = 0;
       resizeCanvasToDisplay();
       drawFrame(animationT);
+      if (isPlaying) startAnimation();
     } catch (error) {
       document.getElementById("physicsStatus").textContent = error.message;
     }
   }
 
+  function simulatePhysicsModel(model, methodKey) {
+    if (model.mode === "planar") return simulatePlanarSystem(model, methodKey);
+    if (model.mode === "particle2d") return simulateParticle2D(model, methodKey);
+    if (model.mode === "coupled") return simulateCoupledOscillators(model, methodKey);
+    if (model.mode === "circuitFirstOrder") return simulateCircuitFirstOrder(model, methodKey);
+    return window.SecondOrderMethods.simulateSecondOrder({
+      equation: model.equation,
+      t0: model.t0,
+      t1: model.t1,
+      h: model.h,
+      y0: model.y0,
+      v0: model.v0
+    }, methodKey);
+  }
+
+  function resonanceVariantModel(base, driveOmega, label = "") {
+    const w2 = base.omega * base.omega;
+    const forcing = Math.abs(base.driveA) > 1e-9 ? base.driveA : 1;
+    return {
+      ...base,
+      resonanceLabel: label,
+      driveA: forcing,
+      driveOmega,
+      equation: `-(${w2})*y - (${base.gamma})*v + (${forcing})*cos((${driveOmega})*t)`,
+      latex: buildOscillatorLatex(base.omega, base.gamma, forcing, driveOmega)
+    };
+  }
+
+  function simulateResonanceResponse(model, methodKey, displayTime = null) {
+    const period = resonancePeriod(model, model.driveOmega);
+    const measureTime = displayTime || model.resonance.measureCycles * period;
+    const requestedSettleTime = model.resonance.settleCycles * period;
+    const dampingSettleTime = model.gamma > 1e-9 ? 6 / model.gamma : 0;
+    const settleTime = Math.max(requestedSettleTime, dampingSettleTime);
+    const totalTime = settleTime + measureTime;
+    const h = Math.min(Math.abs(model.h || 0.03), period / 60);
+    const result = simulatePhysicsModel({
+      ...model,
+      t0: 0,
+      t1: totalTime,
+      h
+    }, methodKey);
+    const start = Math.max(totalTime - measureTime, 0);
+    const visibleRaw = result.points.filter(point => point.t >= start);
+    const visibleStart = visibleRaw[0]?.t ?? start;
+    const visible = visibleRaw.map(point => ({ ...point, t: point.t - visibleStart }));
+    return {
+      ...result,
+      points: visible.length ? visible : result.points,
+      h: result.h,
+      driveOmega: model.driveOmega
+    };
+  }
+
+  function buildResonanceScan(base, methodKey) {
+    const samples = base.resonance.samples;
+    const minOmega = base.resonance.omegaMin;
+    const maxOmega = base.resonance.omegaMax;
+    const omegaValues = resonanceScanFrequencies(base, minOmega, maxOmega, samples);
+    const points = omegaValues.map(omegaDrive => {
+      const variant = resonanceVariantModel(base, omegaDrive, "");
+      const response = simulateResonanceResponse(variant, methodKey);
+      return {
+        omega: omegaDrive,
+        amplitude: responseAmplitude(response.points)
+      };
+    });
+    const peak = points.reduce((best, point) => point.amplitude > best.amplitude ? point : best, points[0] || { omega: 0, amplitude: 0 });
+    const predictedSquared = base.gamma > 1e-9 ? base.omega * base.omega - base.gamma * base.gamma / 2 : -1;
+    return {
+      points,
+      peak,
+      naturalOmega: base.omega,
+      predictedOmega: predictedSquared > 0 ? Math.sqrt(predictedSquared) : null
+    };
+  }
+
+  function resonanceScanFrequencies(base, minOmega, maxOmega, samples) {
+    const span = maxOmega - minOmega;
+    const values = [];
+    for (let i = 0; i < samples; i++) {
+      values.push(samples === 1 ? minOmega : minOmega + span * i / (samples - 1));
+    }
+    const predictedSquared = base.gamma > 1e-9 ? base.omega * base.omega - base.gamma * base.gamma / 2 : -1;
+    const important = [
+      base.omega,
+      predictedSquared > 0 ? Math.sqrt(predictedSquared) : null
+    ];
+    important.forEach(value => {
+      if (value != null && value >= minOmega && value <= maxOmega) values.push(value);
+    });
+    return [...new Map(values.map(value => [formatFrequencyKey(value), value])).values()]
+      .sort((a, b) => a - b);
+  }
+
+  function formatFrequencyKey(value) {
+    return Number(value).toFixed(6);
+  }
+
+  function resonancePeriod(model, driveOmega) {
+    const fallbackOmega = Math.max(Math.abs(model.omega), 0.1);
+    const omegaDrive = Math.max(Math.abs(driveOmega), 1e-6);
+    return 2 * Math.PI / (driveOmega > 1e-6 ? omegaDrive : fallbackOmega);
+  }
+
+  function responseAmplitude(points) {
+    if (!points.length) return 0;
+    const values = points.map(point => point.y);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return (max - min) / 2;
+  }
+
   function readModel() {
     const type = document.getElementById("physicsSystem").value;
     const omega = finiteOr(parseFloat(document.getElementById("physicsOmega").value), 1);
+    const oscillatorMode = document.getElementById("physicsOscillatorMode")?.value || "simulation";
+    const oscillatorAnimation = document.getElementById("physicsOscillatorAnimation")?.value || "spring";
     const gamma = finiteOr(parseFloat(document.getElementById("physicsGamma").value), 0);
     const driveA = finiteOr(parseFloat(document.getElementById("physicsDriveA").value), 0);
     const driveOmega = finiteOr(parseFloat(document.getElementById("physicsDriveOmega").value), 1);
@@ -153,21 +291,82 @@
     const h = finiteOr(parseFloat(document.getElementById("physicsH").value), 0.03);
     const y0 = finiteOr(parseFloat(document.getElementById("physicsY0").value), 1);
     const v0 = finiteOr(parseFloat(document.getElementById("physicsV0").value), 0);
+    const compareEnabled = !!document.getElementById("physicsCompareEnabled")?.checked;
+    const compareY0 = finiteOr(parseFloat(document.getElementById("physicsCompareY0")?.value), y0);
+    const compareV0 = finiteOr(parseFloat(document.getElementById("physicsCompareV0")?.value), v0);
+    const compareOmega = finiteOr(parseFloat(document.getElementById("physicsCompareOmega")?.value), omega);
+    const compareLength = Math.max(finiteOr(parseFloat(document.getElementById("physicsCompareLength")?.value), length), 0.05);
+    const pendulumCompareMode = document.getElementById("physicsPendulumCompareMode")?.value || "custom";
     const circuitL = Math.max(finiteOr(parseFloat(document.getElementById("physicsCircuitL").value), 1), 0);
     const circuitC = Math.max(finiteOr(parseFloat(document.getElementById("physicsCircuitC").value), 1), 0);
     const circuitR = Math.max(finiteOr(parseFloat(document.getElementById("physicsCircuitR").value), 0.2), 0);
     const circuitV = finiteOr(parseFloat(document.getElementById("physicsCircuitV").value), 0);
     const circuitOmega = finiteOr(parseFloat(document.getElementById("physicsCircuitOmega").value), 0);
+    const compareCircuitL = Math.max(finiteOr(parseFloat(document.getElementById("physicsCompareCircuitL")?.value), circuitL), 0);
+    const compareCircuitC = Math.max(finiteOr(parseFloat(document.getElementById("physicsCompareCircuitC")?.value), circuitC), 0);
+    const compareCircuitR = Math.max(finiteOr(parseFloat(document.getElementById("physicsCompareCircuitR")?.value), circuitR), 0);
+    const compareCircuitV = finiteOr(parseFloat(document.getElementById("physicsCompareCircuitV")?.value), circuitV);
+    const compareCircuitOmega = finiteOr(parseFloat(document.getElementById("physicsCompareCircuitOmega")?.value), circuitOmega);
     const predAlpha = Math.max(finiteOr(parseFloat(document.getElementById("physicsPredAlpha").value), 0.55), 0);
     const predBeta = Math.max(finiteOr(parseFloat(document.getElementById("physicsPredBeta").value), 0.02), 0);
     const predDelta = Math.max(finiteOr(parseFloat(document.getElementById("physicsPredDelta").value), 0.01), 0);
     const predGamma = Math.max(finiteOr(parseFloat(document.getElementById("physicsPredGamma").value), 0.4), 0);
+    const comparePredAlpha = Math.max(finiteOr(parseFloat(document.getElementById("physicsComparePredAlpha")?.value), predAlpha), 0);
+    const comparePredBeta = Math.max(finiteOr(parseFloat(document.getElementById("physicsComparePredBeta")?.value), predBeta), 0);
+    const comparePredDelta = Math.max(finiteOr(parseFloat(document.getElementById("physicsComparePredDelta")?.value), predDelta), 0);
+    const comparePredGamma = Math.max(finiteOr(parseFloat(document.getElementById("physicsComparePredGamma")?.value), predGamma), 0);
+    const resOmegaMin = Math.max(finiteOr(parseFloat(document.getElementById("physicsResOmegaMin")?.value), 0.1), 0);
+    const resOmegaMax = Math.max(finiteOr(parseFloat(document.getElementById("physicsResOmegaMax")?.value), 2.5), 0);
+    const resSamples = clamp(Math.round(finiteOr(parseFloat(document.getElementById("physicsResSamples")?.value), 48)), 8, 80);
+    const resOmegaA = Math.max(finiteOr(parseFloat(document.getElementById("physicsResOmegaA")?.value), 0.6), 0);
+    const resOmegaB = Math.max(finiteOr(parseFloat(document.getElementById("physicsResOmegaB")?.value), 1), 0);
+    const resSettleCycles = clamp(Math.round(finiteOr(parseFloat(document.getElementById("physicsResSettleCycles")?.value), 20)), 0, 80);
+    const resMeasureCycles = clamp(Math.round(finiteOr(parseFloat(document.getElementById("physicsResMeasureCycles")?.value), 8)), 2, 40);
     const neuronA = finiteOr(parseFloat(document.getElementById("physicsNeuronA").value), 0.7);
     const neuronB = finiteOr(parseFloat(document.getElementById("physicsNeuronB").value), 0.8);
     const neuronTau = Math.max(finiteOr(parseFloat(document.getElementById("physicsNeuronTau").value), 12.5), 0.1);
     const neuronI = finiteOr(parseFloat(document.getElementById("physicsNeuronI").value), 0.7);
+    const particleX0 = finiteOr(parseFloat(document.getElementById("physicsParticleX0")?.value), 0);
+    const particleY0 = finiteOr(parseFloat(document.getElementById("physicsParticleY0")?.value), 0);
+    const particleVx0 = finiteOr(parseFloat(document.getElementById("physicsParticleVx0")?.value), 5);
+    const particleVy0 = finiteOr(parseFloat(document.getElementById("physicsParticleVy0")?.value), 6);
+    const particleDrag = Math.max(finiteOr(parseFloat(document.getElementById("physicsParticleDrag")?.value), 0), 0);
+    const projectileG = finiteOr(parseFloat(document.getElementById("physicsProjectileG")?.value), 9.81);
+    const bounceY0 = Math.max(finiteOr(parseFloat(document.getElementById("physicsBounceY0")?.value), 3), 0);
+    const bounceVy0 = finiteOr(parseFloat(document.getElementById("physicsBounceVy0")?.value), 8);
+    const bounceRestitution = clamp(finiteOr(parseFloat(document.getElementById("physicsBounceRestitution")?.value), 0.8), 0, 1);
+    const particleCharge = finiteOr(parseFloat(document.getElementById("physicsParticleCharge")?.value), 1);
+    const particleMass = Math.max(finiteOr(parseFloat(document.getElementById("physicsParticleMass")?.value), 1), 0.05);
+    const electricEx = finiteOr(parseFloat(document.getElementById("physicsElectricEx")?.value), 1);
+    const electricEy = finiteOr(parseFloat(document.getElementById("physicsElectricEy")?.value), 0);
+    const magneticB = finiteOr(parseFloat(document.getElementById("physicsMagneticB")?.value), 1);
+    const phaseProjection = document.getElementById("physicsPhaseProjection")?.value || defaultPhaseProjection(type);
+    const coupledOmega = finiteOr(parseFloat(document.getElementById("physicsCoupledOmega")?.value), 1);
+    const coupledKappa = finiteOr(parseFloat(document.getElementById("physicsCoupledKappa")?.value), 0.35);
+    const coupledGamma = Math.max(finiteOr(parseFloat(document.getElementById("physicsCoupledGamma")?.value), 0), 0);
+    const coupledX1 = finiteOr(parseFloat(document.getElementById("physicsCoupledX1")?.value), 1);
+    const coupledV1 = finiteOr(parseFloat(document.getElementById("physicsCoupledV1")?.value), 0);
+    const coupledX2 = finiteOr(parseFloat(document.getElementById("physicsCoupledX2")?.value), 0);
+    const coupledV2 = finiteOr(parseFloat(document.getElementById("physicsCoupledV2")?.value), 0);
 
     const forcing = Math.abs(driveA) > 1e-9 ? driveA : 0;
+    const compare = {
+      enabled: compareEnabled && (type === "oscillator" || type === "pendulum" || type === "rlc" || type === "predatorPrey"),
+      y0: compareY0,
+      v0: compareV0,
+      omega: compareOmega,
+      length: compareLength,
+      pendulumMode: pendulumCompareMode,
+      circuitL: compareCircuitL,
+      circuitC: compareCircuitC,
+      circuitR: compareCircuitR,
+      circuitV: compareCircuitV,
+      circuitOmega: compareCircuitOmega,
+      predAlpha: comparePredAlpha,
+      predBeta: comparePredBeta,
+      predDelta: comparePredDelta,
+      predGamma: comparePredGamma
+    };
 
     if (type === "pendulum") {
       const w2 = g / length;
@@ -187,20 +386,13 @@
         g,
         equation: `-(${w2})*sin(y) - (${gamma})*v + (${forcing})*cos((${driveOmega})*t)`,
         latex: buildPendulumLatex(g, length, gamma, forcing, driveOmega),
+        compare,
         description: modelDescription(type)
       };
     }
 
     if (type === "rlc") {
-      const voltage = Math.abs(circuitV) > 1e-9 ? circuitV : 0;
-      const hasL = circuitL > 1e-9;
-      const hasC = circuitC > 1e-9;
-      const dampingTerm = hasL ? circuitR / circuitL : 0;
-      const capacitorTerm = hasL && hasC ? 1 / (circuitL * circuitC) : 0;
-      const driveTerm = hasL ? voltage / circuitL : 0;
-      return {
-        type: "rlc",
-        mode: hasL ? "secondOrder" : "circuitFirstOrder",
+      return buildRlcModel({
         t0,
         t1,
         h,
@@ -209,26 +401,14 @@
         circuitL,
         circuitC,
         circuitR,
-        circuitV: voltage,
+        circuitV,
         circuitOmega,
-        hasL,
-        hasC,
-        hasR: circuitR > 1e-9,
-        omega: hasL && hasC ? 1 / Math.sqrt(circuitL * circuitC) : 0,
-        gamma: dampingTerm,
-        driveA: driveTerm,
-        driveOmega: circuitOmega,
-        equation: `-(${dampingTerm})*v - (${capacitorTerm})*y + (${driveTerm})*cos((${circuitOmega})*t)`,
-        latex: buildRlcLatex(circuitL, circuitC, circuitR, voltage, circuitOmega),
-        description: modelDescription(type)
-      };
+        compare
+      });
     }
 
     if (type === "predatorPrey") {
-      return {
-        type: "predatorPrey",
-        mode: "planar",
-        positiveState: true,
+      return buildPredatorModel({
         t0,
         t1,
         h,
@@ -238,13 +418,8 @@
         predBeta,
         predDelta,
         predGamma,
-        derivative: (t, prey, wolves) => ({
-          y: predAlpha * prey - predBeta * prey * wolves,
-          v: predDelta * prey * wolves - predGamma * wolves
-        }),
-        latex: buildPredatorPreyLatex(predAlpha, predBeta, predDelta, predGamma),
-        description: modelDescription(type)
-      };
+        compare
+      });
     }
 
     if (type === "neuron") {
@@ -269,10 +444,93 @@
       };
     }
 
+    if (type === "projectile") {
+      return buildParticleModel({
+        type,
+        t0,
+        t1,
+        h,
+        x0: particleX0,
+        y0: particleY0,
+        vx0: particleVx0,
+        vy0: particleVy0,
+        drag: particleDrag,
+        ax: () => 0,
+        ay: () => -projectileG,
+        params: { g: projectileG },
+        phaseProjection: normalizePhaseProjection("particle", phaseProjection, defaultPhaseProjection(type)),
+        latex: buildProjectileLatex(projectileG, particleDrag)
+      });
+    }
+
+    if (type === "verticalBounce") {
+      return buildParticleModel({
+        type,
+        t0,
+        t1,
+        h,
+        x0: 0,
+        y0: bounceY0,
+        vx0: 0,
+        vy0: bounceVy0,
+        drag: particleDrag,
+        ax: () => 0,
+        ay: () => -projectileG,
+        params: { g: projectileG, restitution: bounceRestitution },
+        groundBounce: true,
+        restitution: bounceRestitution,
+        phaseProjection: normalizePhaseProjection("particle", phaseProjection, defaultPhaseProjection(type)),
+        latex: buildVerticalBounceLatex(projectileG, particleDrag, bounceRestitution)
+      });
+    }
+
+    if (type === "chargedParticle") {
+      return buildParticleModel({
+        type,
+        t0,
+        t1,
+        h,
+        x0: particleX0,
+        y0: particleY0,
+        vx0: particleVx0,
+        vy0: particleVy0,
+        drag: particleDrag,
+        ax: state => particleCharge * (electricEx + state.vy * magneticB) / particleMass,
+        ay: state => particleCharge * (electricEy - state.vx * magneticB) / particleMass,
+        params: { q: particleCharge, m: particleMass, ex: electricEx, ey: electricEy, bz: magneticB },
+        phaseProjection: normalizePhaseProjection("particle", phaseProjection, defaultPhaseProjection(type)),
+        latex: buildChargedParticleLatex(particleCharge, particleMass, electricEx, electricEy, magneticB, particleDrag)
+      });
+    }
+
+    if (type === "coupledOscillators") {
+      return {
+        type,
+        mode: "coupled",
+        t0,
+        t1,
+        h,
+        omega: coupledOmega,
+        kappa: coupledKappa,
+        gamma: coupledGamma,
+        x1: coupledX1,
+        v1: coupledV1,
+        x2: coupledX2,
+        v2: coupledV2,
+        y0: coupledX1,
+        v0: coupledV1,
+        phaseProjection: normalizePhaseProjection("coupled", phaseProjection, defaultPhaseProjection(type)),
+        latex: buildCoupledOscillatorsLatex(coupledOmega, coupledKappa, coupledGamma),
+        description: modelDescription(type)
+      };
+    }
+
     const w2 = omega * omega;
+    const oscillatorAnalysisMode = type === "oscillator" ? oscillatorMode : "simulation";
     return {
       type: "oscillator",
       mode: "secondOrder",
+      analysisMode: oscillatorAnalysisMode,
       t0,
       t1,
       h,
@@ -280,19 +538,271 @@
       v0,
       omega,
       gamma,
+      oscillatorAnimation,
       driveA: forcing,
       driveOmega,
       length,
       g,
       equation: `-(${w2})*y - (${gamma})*v + (${forcing})*cos((${driveOmega})*t)`,
-      latex: buildOscillatorLatex(omega, gamma, forcing, driveOmega),
+      latex: oscillatorAnalysisMode === "resonance"
+        ? buildResonanceOscillatorLatex(omega, gamma, Math.abs(driveA) > 1e-9 ? driveA : 1)
+        : buildOscillatorLatex(omega, gamma, forcing, driveOmega),
+      resonance: {
+        omegaMin: Math.min(resOmegaMin, resOmegaMax),
+        omegaMax: Math.max(resOmegaMin, resOmegaMax),
+        samples: resSamples,
+        omegaA: resOmegaA,
+        omegaB: resOmegaB,
+        compare: compareEnabled,
+        settleCycles: resSettleCycles,
+        measureCycles: resMeasureCycles
+      },
+      compare,
       description: modelDescription(type)
+    };
+  }
+
+  function buildRlcModel(config) {
+    const voltage = Math.abs(config.circuitV) > 1e-9 ? config.circuitV : 0;
+    const hasL = config.circuitL > 1e-9;
+    const hasC = config.circuitC > 1e-9;
+    const dampingTerm = hasL ? config.circuitR / config.circuitL : 0;
+    const capacitorTerm = hasL && hasC ? 1 / (config.circuitL * config.circuitC) : 0;
+    const driveTerm = hasL ? voltage / config.circuitL : 0;
+    return {
+      type: "rlc",
+      mode: hasL ? "secondOrder" : "circuitFirstOrder",
+      t0: config.t0,
+      t1: config.t1,
+      h: config.h,
+      y0: config.y0,
+      v0: config.v0,
+      circuitL: config.circuitL,
+      circuitC: config.circuitC,
+      circuitR: config.circuitR,
+      circuitV: voltage,
+      circuitOmega: config.circuitOmega,
+      hasL,
+      hasC,
+      hasR: config.circuitR > 1e-9,
+      omega: hasL && hasC ? 1 / Math.sqrt(config.circuitL * config.circuitC) : 0,
+      gamma: dampingTerm,
+      driveA: driveTerm,
+      driveOmega: config.circuitOmega,
+      equation: `-(${dampingTerm})*v - (${capacitorTerm})*y + (${driveTerm})*cos((${config.circuitOmega})*t)`,
+      latex: buildRlcLatex(config.circuitL, config.circuitC, config.circuitR, voltage, config.circuitOmega),
+      compare: config.compare || null,
+      isCompare: !!config.isCompare,
+      description: modelDescription("rlc")
+    };
+  }
+
+  function buildPredatorModel(config) {
+    return {
+      type: "predatorPrey",
+      mode: "planar",
+      positiveState: true,
+      t0: config.t0,
+      t1: config.t1,
+      h: config.h,
+      y0: Math.max(config.y0, 0),
+      v0: Math.max(config.v0, 0),
+      predAlpha: config.predAlpha,
+      predBeta: config.predBeta,
+      predDelta: config.predDelta,
+      predGamma: config.predGamma,
+      derivative: (t, prey, wolves) => ({
+        y: config.predAlpha * prey - config.predBeta * prey * wolves,
+        v: config.predDelta * prey * wolves - config.predGamma * wolves
+      }),
+      latex: buildPredatorPreyLatex(config.predAlpha, config.predBeta, config.predDelta, config.predGamma),
+      compare: config.compare || null,
+      isCompare: !!config.isCompare,
+      description: modelDescription("predatorPrey")
+    };
+  }
+
+  function buildParticleModel(config) {
+    return {
+      type: config.type,
+      mode: "particle2d",
+      t0: config.t0,
+      t1: config.t1,
+      h: config.h,
+      x0: config.x0,
+      yParticle0: config.y0,
+      vx0: config.vx0,
+      vy0: config.vy0,
+      y0: config.x0,
+      v0: config.vx0,
+      drag: config.drag,
+      params: config.params || {},
+      acceleration: config,
+      phaseProjection: config.phaseProjection || "vx-vy",
+      groundBounce: !!config.groundBounce,
+      restitution: config.restitution ?? 1,
+      postStep: config.groundBounce
+        ? (before, predicted, tStart, tEnd, step, methodKey, derivative, keys) => bounceParticleAtGround(config, before, predicted, tStart, step, methodKey, derivative, keys)
+        : null,
+      latex: config.latex,
+      description: modelDescription(config.type)
+    };
+  }
+
+  function bounceParticleAtGround(model, before, predicted, tStart, step, methodKey, derivative, keys) {
+    if (predicted.y >= 0) return predicted;
+    const restitution = model.restitution ?? 1;
+    if (Math.abs(model.drag || 0) < 1e-12 && before.y >= 0) {
+      const ay = model.ay(before, tStart);
+      const impactDt = solveGroundImpactTime(before.y, before.vy, ay, step);
+      if (impactDt != null) {
+        const remaining = step - impactDt;
+        const impactX = before.x + before.vx * impactDt;
+        const impactVx = before.vx;
+        const impactVy = before.vy + ay * impactDt;
+        const bouncedVy = Math.abs(impactVy) * restitution;
+        const preImpactState = {
+          x: impactX,
+          y: 0,
+          vx: impactVx,
+          vy: impactVy,
+          t: tStart + impactDt
+        };
+        const impactState = {
+          x: impactX,
+          y: 0,
+          vx: impactVx,
+          vy: bouncedVy,
+          t: tStart + impactDt
+        };
+        const yAfter = bouncedVy * remaining + 0.5 * ay * remaining * remaining;
+        const vyAfter = bouncedVy + ay * remaining;
+        return {
+          state: {
+            x: impactX + impactVx * remaining,
+            y: Math.max(0, yAfter),
+            vx: impactVx,
+            vy: yAfter < 0 && vyAfter < 0 ? Math.abs(vyAfter) * restitution : vyAfter
+          },
+          inserts: [preImpactState, impactState]
+        };
+      }
+    }
+
+    const fraction = before.y > predicted.y ? clamp(before.y / (before.y - predicted.y), 0, 1) : 0;
+    const impact = interpolateVectorState(before, predicted, fraction, keys);
+    impact.y = 0;
+    const preImpactState = { ...impact, t: tStart + step * fraction };
+    if (impact.vy < 0) impact.vy = -impact.vy * restitution;
+    const remaining = step * (1 - fraction);
+    const impactState = { ...impact, t: tStart + step * fraction };
+    if (Math.abs(remaining) < 1e-12) return { state: impact, inserts: [preImpactState, impactState] };
+    const after = stepVectorMethod(methodKey, derivative, tStart + step * fraction, impact, remaining, null, keys);
+    if (after.y < 0) {
+      after.y = 0;
+      if (after.vy < 0) after.vy = -after.vy * restitution;
+    }
+    return { state: after, inserts: [preImpactState, impactState] };
+  }
+
+  function solveGroundImpactTime(y, vy, ay, step) {
+    const maxDt = Math.abs(step);
+    if (Math.abs(ay) < 1e-12) {
+      if (Math.abs(vy) < 1e-12) return null;
+      const dt = -y / vy;
+      return dt >= 0 && dt <= maxDt ? dt : null;
+    }
+    const discriminant = vy * vy - 2 * ay * y;
+    if (discriminant < 0) return null;
+    const sqrtD = Math.sqrt(discriminant);
+    const candidates = [
+      (-vy - sqrtD) / ay,
+      (-vy + sqrtD) / ay
+    ].filter(dt => dt >= -1e-12 && dt <= maxDt + 1e-12);
+    if (!candidates.length) return null;
+    return Math.max(0, Math.min(...candidates));
+  }
+
+  function interpolateVectorState(a, b, fraction, keys) {
+    const state = {};
+    keys.forEach(key => {
+      state[key] = a[key] + (b[key] - a[key]) * fraction;
+    });
+    return state;
+  }
+
+  function buildCompareModel(model) {
+    if (!model.compare?.enabled) return null;
+    if (model.type === "pendulum") {
+      const useLinear = model.compare.pendulumMode === "linear";
+      const length = useLinear ? model.length : Math.max(model.compare.length, 0.05);
+      const w2 = model.g / length;
+      return {
+        ...model,
+        compare: null,
+        isCompare: true,
+        isLinearCompare: useLinear,
+        y0: useLinear ? model.y0 : model.compare.y0,
+        v0: useLinear ? model.v0 : model.compare.v0,
+        length,
+        omega: Math.sqrt(w2),
+        equation: useLinear
+          ? `-(${w2})*y - (${model.gamma})*v + (${model.driveA})*cos((${model.driveOmega})*t)`
+          : `-(${w2})*sin(y) - (${model.gamma})*v + (${model.driveA})*cos((${model.driveOmega})*t)`,
+        latex: useLinear
+          ? buildLinearPendulumLatex(model.g, length, model.gamma, model.driveA, model.driveOmega)
+          : buildPendulumLatex(model.g, length, model.gamma, model.driveA, model.driveOmega)
+      };
+    }
+    if (model.type === "rlc") {
+      return buildRlcModel({
+        t0: model.t0,
+        t1: model.t1,
+        h: model.h,
+        y0: model.compare.y0,
+        v0: model.compare.v0,
+        circuitL: model.compare.circuitL,
+        circuitC: model.compare.circuitC,
+        circuitR: model.compare.circuitR,
+        circuitV: model.compare.circuitV,
+        circuitOmega: model.compare.circuitOmega,
+        isCompare: true
+      });
+    }
+    if (model.type === "predatorPrey") {
+      return buildPredatorModel({
+        t0: model.t0,
+        t1: model.t1,
+        h: model.h,
+        y0: model.compare.y0,
+        v0: model.compare.v0,
+        predAlpha: model.compare.predAlpha,
+        predBeta: model.compare.predBeta,
+        predDelta: model.compare.predDelta,
+        predGamma: model.compare.predGamma,
+        isCompare: true
+      });
+    }
+    const omega = model.compare.omega;
+    return {
+      ...model,
+      compare: null,
+      isCompare: true,
+      y0: model.compare.y0,
+      v0: model.compare.v0,
+      omega,
+      equation: `-(${omega * omega})*y - (${model.gamma})*v + (${model.driveA})*cos((${model.driveOmega})*t)`,
+      latex: buildOscillatorLatex(omega, model.gamma, model.driveA, model.driveOmega)
     };
   }
 
   function modelDescription(type) {
     if (type === "oscillator") return "oscillator: x'' = -omega^2 x, with optional damping and drive";
     if (type === "pendulum") return "pendulum: theta'' = -(g/L) sin(theta)";
+    if (type === "projectile") return "projectile motion: gravity bends a 2D trajectory";
+    if (type === "verticalBounce") return "vertical projectile motion with energy loss at the floor";
+    if (type === "chargedParticle") return "charged particle in uniform electric and magnetic fields";
+    if (type === "coupledOscillators") return "two linear oscillators connected by a coupling spring";
     if (type === "rlc") return "RLC circuit: charge and current behave like a damped oscillator";
     if (type === "predatorPrey") return "predator-prey: two populations coupled by feedback";
     if (type === "neuron") return "FitzHugh-Nagumo neuron: voltage and recovery variable";
@@ -301,26 +811,70 @@
 
   function updatePhysicsControls(model = readModel()) {
     const type = document.getElementById("physicsSystem").value;
+    const oscillator = type === "oscillator";
+    const resonance = oscillator && (document.getElementById("physicsOscillatorMode")?.value || "simulation") === "resonance";
     const pendulum = type === "pendulum";
+    const particle = type === "projectile" || type === "verticalBounce" || type === "chargedParticle";
+    const bounce = type === "verticalBounce";
+    const chargedParticle = type === "chargedParticle";
+    const coupled = type === "coupledOscillators";
+    const rlc = type === "rlc";
+    const predator = type === "predatorPrey";
+    const compare = oscillator || pendulum || rlc || predator;
+    const compareEnabled = !!document.getElementById("physicsCompareEnabled")?.checked;
+    const pendulumCompareMode = document.getElementById("physicsPendulumCompareMode")?.value || "custom";
+    const linearPendulumCompare = pendulum && pendulumCompareMode === "linear";
     const visibility = {
       secondMethod: true,
-      initial: true,
-      omega: type === "oscillator",
+      initial: !resonance && !particle && !coupled,
+      omega: oscillator,
+      oscillatorMode: oscillator,
+      oscillatorAnimation: oscillator && !resonance,
       damping: type === "oscillator" || type === "pendulum",
       drive: type === "oscillator" || type === "pendulum",
+      driveOmega: (type === "oscillator" || type === "pendulum") && !resonance,
+      resonance,
+      resonanceCompare: compareEnabled && resonance,
       pendulum,
-      rlc: type === "rlc",
-      predator: type === "predatorPrey",
+      compare,
+      compareInitial: compareEnabled && !resonance && (type === "oscillator" || rlc || predator || !linearPendulumCompare),
+      compareOscillator: compareEnabled && type === "oscillator" && !resonance,
+      comparePendulum: compareEnabled && pendulum,
+      comparePendulumCustom: compareEnabled && pendulum && !linearPendulumCompare,
+      compareRlc: compareEnabled && rlc,
+      comparePredator: compareEnabled && predator,
+      phaseProjection: particle || coupled,
+      particleInitial: particle && !bounce,
+      bounceInitial: bounce,
+      particleDrag: particle,
+      projectile: type === "projectile" || bounce,
+      bounce,
+      chargedParticle,
+      electricField: chargedParticle,
+      magneticField: chargedParticle,
+      coupled,
+      coupledInitial: coupled,
+      rlc,
+      predator,
       neuron: type === "neuron"
     };
 
     document.querySelectorAll("[data-physics-param]").forEach(group => {
       group.classList.toggle("hidden", !visibility[group.dataset.physicsParam]);
     });
+    updatePhaseProjectionOptions(type);
 
     const labels = variableLabels(model || { type });
     document.getElementById("physicsY0Label").textContent = `${labels.y}(0)`;
     document.getElementById("physicsV0Label").textContent = `${labels.v}(0)`;
+    document.getElementById("physicsCompareY0Label").textContent = `${labels.y}B(0)`;
+    document.getElementById("physicsCompareV0Label").textContent = `${labels.v}B(0)`;
+    const pickTarget = document.getElementById("physicsResPickTarget");
+    const pickB = pickTarget?.querySelector('option[value="B"]');
+    if (pickB) {
+      pickB.disabled = !compareEnabled;
+      if (!compareEnabled && pickTarget.value === "B") pickTarget.value = "A";
+    }
     renderEquation(model);
   }
 
@@ -331,6 +885,54 @@
     if (window.MathJax?.typesetPromise) {
       window.MathJax.typesetPromise([el]).catch(() => {});
     }
+  }
+
+  function updatePhaseProjectionOptions(type) {
+    const select = document.getElementById("physicsPhaseProjection");
+    if (!select) return;
+    const options = phaseProjectionOptions(type);
+    const previous = select.value || defaultPhaseProjection(type);
+    select.innerHTML = options
+      .map(option => `<option value="${option.value}">${option.label}</option>`)
+      .join("");
+    select.value = options.some(option => option.value === previous)
+      ? previous
+      : defaultPhaseProjection(type);
+  }
+
+  function phaseProjectionOptions(type) {
+    if (type === "coupledOscillators") {
+      return [
+        { value: "coupledBoth", label: "x1-v1 and x2-v2" },
+        { value: "x1-v1", label: "x1 vs v1" },
+        { value: "x2-v2", label: "x2 vs v2" },
+        { value: "x1-x2", label: "x1 vs x2" },
+        { value: "v1-v2", label: "v1 vs v2" },
+        { value: "x1-v2", label: "x1 vs v2" },
+        { value: "x2-v1", label: "x2 vs v1" }
+      ];
+    }
+    return [
+      { value: "particleCompare", label: "x-vx and y-vy" },
+      { value: "x-y", label: "x vs y" },
+      { value: "x-vx", label: "x vs vx" },
+      { value: "x-vy", label: "x vs vy" },
+      { value: "y-vx", label: "y vs vx" },
+      { value: "y-vy", label: "y vs vy" },
+      { value: "vx-vy", label: "vx vs vy" },
+    ];
+  }
+
+  function defaultPhaseProjection(type) {
+    if (type === "verticalBounce") return "y-vy";
+    if (type === "coupledOscillators") return "coupledBoth";
+    return "particleCompare";
+  }
+
+  function normalizePhaseProjection(kind, value, fallback) {
+    const type = kind === "coupled" ? "coupledOscillators" : "projectile";
+    const allowed = phaseProjectionOptions(type).map(option => option.value);
+    return allowed.includes(value) ? value : fallback;
   }
 
   function buildOscillatorLatex(omega, gamma, driveA, driveOmega) {
@@ -349,6 +951,22 @@
     return equationMarkup(equation, params);
   }
 
+  function buildResonanceOscillatorLatex(omega, gamma, driveA) {
+    let equation = "\\ddot{x} = -\\omega_0^2 x";
+    const params = [
+      ["\\omega_0", omega],
+      ["A", driveA]
+    ];
+    if (Math.abs(gamma) > 1e-9) {
+      equation += " - \\gamma\\dot{x}";
+      params.push(["\\gamma", gamma]);
+    }
+    equation += " + A\\cos(\\Omega t)";
+    return equationMarkup(equation, params, [
+      "Omega is scanned; A and B choose two drive frequencies from the scan"
+    ]);
+  }
+
   function buildPendulumLatex(g, length, gamma, driveA, driveOmega) {
     let equation = "\\ddot{\\theta} = -\\frac{g}{L}\\sin\\theta";
     const params = [
@@ -364,6 +982,25 @@
       params.push(["A", driveA], ["\\Omega", driveOmega]);
     }
     return equationMarkup(equation, params);
+  }
+
+  function buildLinearPendulumLatex(g, length, gamma, driveA, driveOmega) {
+    let equation = "\\ddot{\\theta} = -\\frac{g}{L}\\theta";
+    const params = [
+      ["g", g],
+      ["L", length]
+    ];
+    if (Math.abs(gamma) > 1e-9) {
+      equation += " - \\gamma\\dot{\\theta}";
+      params.push(["\\gamma", gamma]);
+    }
+    if (Math.abs(driveA) > 1e-9) {
+      equation += " + A\\cos(\\Omega t)";
+      params.push(["A", driveA], ["\\Omega", driveOmega]);
+    }
+    return equationMarkup(equation, params, [
+      "linearized pendulum: sin(theta) is replaced by theta"
+    ]);
   }
 
   function buildRlcLatex(circuitL, circuitC, circuitR, voltage, circuitOmega) {
@@ -433,6 +1070,83 @@
     ]);
   }
 
+  function buildProjectileLatex(g, drag) {
+    const equation = drag > 1e-9
+      ? "\\dot{x}=v_x,\\quad \\dot{y}=v_y,\\quad \\dot{v}_x=-d v_x,\\quad \\dot{v}_y=-g-d v_y"
+      : "\\dot{x}=v_x,\\quad \\dot{y}=v_y,\\quad \\dot{v}_x=0,\\quad \\dot{v}_y=-g";
+    const params = [["g", g]];
+    if (drag > 1e-9) params.push(["d", drag]);
+    return equationMarkup(equation, params, [
+      "x,y: position in the plane",
+      "vx,vy: velocity components",
+      "d: simple linear air resistance"
+    ]);
+  }
+
+  function buildVerticalBounceLatex(g, drag, restitution) {
+    const equation = drag > 1e-9
+      ? "\\dot{y}=v_y,\\quad \\dot{v}_y=-g-dv_y,\\quad y=0:\\ v_y\\to -e v_y"
+      : "\\dot{y}=v_y,\\quad \\dot{v}_y=-g,\\quad y=0:\\ v_y\\to -e v_y";
+    const params = [["g", g], ["e", restitution]];
+    if (drag > 1e-9) params.push(["d", drag]);
+    return equationMarkup(equation, params, [
+      "e: restitution coefficient at the floor",
+      "e=1 keeps mechanical energy at bounce",
+      "e<1 loses energy at every bounce"
+    ]);
+  }
+
+  function buildElectricParticleLatex(q, m, ex, ey, drag) {
+    const equation = drag > 1e-9
+      ? "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}\\vec E-d\\vec v"
+      : "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}\\vec E";
+    const params = [["q", q], ["m", m], ["E_x", ex], ["E_y", ey]];
+    if (drag > 1e-9) params.push(["d", drag]);
+    return equationMarkup(equation, params, [
+      "uniform electric field gives a constant acceleration",
+      "positive and negative q accelerate in opposite directions"
+    ]);
+  }
+
+  function buildMagneticParticleLatex(q, m, bz, drag) {
+    const equation = drag > 1e-9
+      ? "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}(\\vec v\\times\\vec B)-d\\vec v"
+      : "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}(\\vec v\\times\\vec B)";
+    const params = [["q", q], ["m", m], ["B_z", bz]];
+    if (drag > 1e-9) params.push(["d", drag]);
+    return equationMarkup(equation, params, [
+      "Bz is perpendicular to the screen",
+      "magnetic force turns the velocity instead of speeding along it"
+    ]);
+  }
+
+  function buildChargedParticleLatex(q, m, ex, ey, bz, drag) {
+    const equation = drag > 1e-9
+      ? "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}(\\vec E+\\vec v\\times\\vec B)-d\\vec v"
+      : "\\dot{\\vec r}=\\vec v,\\quad \\dot{\\vec v}=\\frac{q}{m}(\\vec E+\\vec v\\times\\vec B)";
+    const params = [["q", q], ["m", m], ["E_x", ex], ["E_y", ey], ["B_z", bz]];
+    if (drag > 1e-9) params.push(["d", drag]);
+    return equationMarkup(equation, params, [
+      "set Bz=0 for pure electric-field motion",
+      "set Ex=Ey=0 for pure magnetic-field motion",
+      "magnetic force changes direction of velocity; electric field can change speed"
+    ]);
+  }
+
+  function buildCoupledOscillatorsLatex(omega, kappa, gamma) {
+    let equation = "\\ddot{x}_1=-\\omega_0^2x_1-\\kappa(x_1-x_2),\\quad \\ddot{x}_2=-\\omega_0^2x_2-\\kappa(x_2-x_1)";
+    const params = [["\\omega_0", omega], ["\\kappa", kappa]];
+    if (gamma > 1e-9) {
+      equation = "\\ddot{x}_1=-\\omega_0^2x_1-\\kappa(x_1-x_2)-\\gamma\\dot{x}_1,\\quad \\ddot{x}_2=-\\omega_0^2x_2-\\kappa(x_2-x_1)-\\gamma\\dot{x}_2";
+      params.push(["\\gamma", gamma]);
+    }
+    return equationMarkup(equation, params, [
+      "x1,x2: displacement of the two masses",
+      "&kappa;: coupling strength between them",
+      "linear coupled oscillators exchange energy but are not chaotic"
+    ]);
+  }
+
   function equationMarkup(equation, params, notes = []) {
     const paramMarkup = params
       .map(([name, value]) => `<span>\\(${name}=${formatHudNumber(value)}\\)</span>`)
@@ -448,6 +1162,8 @@
     if (model.type === "rlc") return { y: "q", v: "i" };
     if (model.type === "predatorPrey") return { y: "sheep", v: "wolves" };
     if (model.type === "neuron") return { y: "u", v: "w" };
+    if (model.mode === "particle2d") return { y: "x", v: "vx" };
+    if (model.mode === "coupled") return { y: "x1", v: "v1" };
     return { y: "x", v: "v" };
   }
 
@@ -482,20 +1198,400 @@
     };
   }
 
+  function setExtraPhysicsPlotVisible(visible) {
+    const el = document.getElementById("physicsExtraPlot");
+    if (!el) return;
+    el.classList.toggle("hidden", !visible);
+    if (!visible && window.Plotly?.purge) window.Plotly.purge(el);
+  }
+
+  function energyComponentSpecs(model) {
+    if (model.mode === "particle2d") {
+      const specs = [
+        {
+          key: "kinetic",
+          name: hasElectricField(model) ? "kinetic energy" : "kinetic energy = total",
+          color: "#2563eb",
+          value: (m, point) => {
+            const mass = particleMassForEnergy(m);
+            return 0.5 * mass * (point.vx * point.vx + point.vy * point.vy);
+          }
+        }
+      ];
+      if (model.type === "projectile" || model.type === "verticalBounce") {
+        specs.push({
+          key: "potential",
+          name: "gravitational potential",
+          color: "#f97316",
+          value: (m, point) => particleMassForEnergy(m) * (m.params.g || 0) * point.yPos
+        });
+      } else if (model.type === "chargedParticle" && hasElectricField(model)) {
+        specs.push({
+          key: "potential",
+          name: "electric potential",
+          color: "#f97316",
+          value: (m, point) => -(m.params.q || 0) * ((m.params.ex || 0) * point.x + (m.params.ey || 0) * point.yPos)
+        });
+      }
+      specs.push({
+        key: "total",
+        name: "total energy",
+        color: "#16a34a",
+        width: 2.6,
+        value: (m, point) => specs
+          .filter(spec => spec.key !== "total")
+          .reduce((sum, spec) => sum + spec.value(m, point), 0)
+      });
+      return specs;
+    }
+
+    if (model.mode === "coupled") {
+      return [
+        {
+          key: "kinetic1",
+          name: "mass 1 kinetic",
+          color: "#2563eb",
+          value: (m, point) => 0.5 * point.v1 * point.v1
+        },
+        {
+          key: "kinetic2",
+          name: "mass 2 kinetic",
+          color: "#0ea5e9",
+          value: (m, point) => 0.5 * point.v2 * point.v2
+        },
+        {
+          key: "wallSpring",
+          name: "outer springs",
+          color: "#f97316",
+          value: (m, point) => 0.5 * m.omega * m.omega * (point.x1 * point.x1 + point.x2 * point.x2)
+        },
+        {
+          key: "coupling",
+          name: "coupling spring",
+          color: "#a855f7",
+          value: (m, point) => 0.5 * m.kappa * (point.x1 - point.x2) * (point.x1 - point.x2)
+        },
+        {
+          key: "total",
+          name: "total energy",
+          color: "#16a34a",
+          width: 2.8,
+          value: (m, point) => 0.5 * point.v1 * point.v1
+            + 0.5 * point.v2 * point.v2
+            + 0.5 * m.omega * m.omega * (point.x1 * point.x1 + point.x2 * point.x2)
+            + 0.5 * m.kappa * (point.x1 - point.x2) * (point.x1 - point.x2)
+        }
+      ];
+    }
+    return [];
+  }
+
+  function particleMassForEnergy(model) {
+    return model.params?.m || 1;
+  }
+
+  function hasElectricField(model) {
+    return Math.hypot(model.params?.ex || 0, model.params?.ey || 0) > 1e-9;
+  }
+
+  function drawExtraEnergyPlot(model, result) {
+    const specs = energyComponentSpecs(model);
+    if (!specs.length) {
+      setExtraPhysicsPlotVisible(false);
+      return;
+    }
+    setExtraPhysicsPlotVisible(true);
+    const t = result.points.map(point => point.t);
+    const fullTraces = specs.map(spec => ({
+      x: t,
+      y: result.points.map(point => spec.value(model, point)),
+      name: spec.name,
+      mode: "lines",
+      line: { color: spec.color, width: spec.width || 1.5 },
+      opacity: spec.key === "total" ? 0.34 : 0.22
+    }));
+    const elapsedTraces = specs.map(spec => ({
+      x: [],
+      y: [],
+      name: `${spec.name} elapsed`,
+      mode: "lines",
+      showlegend: false,
+      line: { color: spec.color, width: spec.width || 2.3 }
+    }));
+    const allValues = fullTraces.flatMap(trace => trace.y);
+    window.Plotly.newPlot("physicsExtraPlot", [...fullTraces, ...elapsedTraces], {
+      title: "energy",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "E", range: paddedRange(allValues), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-extra-energy`
+    }, { responsive: true });
+  }
+
+  function drawResonancePlots(modelA, modelB, resultA, resultB, scan) {
+    setExtraPhysicsPlotVisible(false);
+    const scanOmega = scan.points.map(point => point.omega);
+    const scanAmplitude = scan.points.map(point => point.amplitude);
+    const tA = resultA.points.map(point => point.t);
+    const xA = resultA.points.map(point => point.y);
+    const vA = resultA.points.map(point => point.v);
+    const tB = resultB?.points.map(point => point.t) || [];
+    const xB = resultB?.points.map(point => point.y) || [];
+    const vB = resultB?.points.map(point => point.v) || [];
+    const hasB = !!modelB && !!resultB;
+    const shapes = [
+      resonanceVerticalLine(scan.naturalOmega, "#2563eb", "dot")
+    ];
+    const annotations = [
+      resonanceAnnotation(scan.naturalOmega, "omega0", "#2563eb")
+    ];
+    if (scan.predictedOmega != null) {
+      shapes.push(resonanceVerticalLine(scan.predictedOmega, "#16a34a", "dash"));
+      annotations.push(resonanceAnnotation(scan.predictedOmega, "damped peak approx", "#16a34a", 0.88));
+    }
+
+    const scanTraces = [
+      {
+        x: scanOmega,
+        y: scanAmplitude,
+        name: "steady amplitude",
+        mode: "lines+markers",
+        line: { color: "#111827", width: 2 },
+        marker: { color: "#111827", size: 8 }
+      },
+      {
+        x: [modelA.driveOmega],
+        y: [nearestResonanceAmplitude(scan, modelA.driveOmega)],
+        name: "Omega A",
+        mode: "markers",
+        marker: { color: "#2563eb", size: 12, line: { color: "#ffffff", width: 2 } }
+      },
+      {
+        x: [scan.peak.omega],
+        y: [scan.peak.amplitude],
+        name: "numeric peak",
+        mode: "markers",
+        marker: { color: "#dc2626", size: 13, symbol: "star" }
+      }
+    ];
+    if (hasB) {
+      scanTraces.splice(2, 0, {
+        x: [modelB.driveOmega],
+        y: [nearestResonanceAmplitude(scan, modelB.driveOmega)],
+        name: "Omega B",
+        mode: "markers",
+        marker: { color: "#f97316", size: 12, line: { color: "#ffffff", width: 2 } }
+      });
+    }
+
+    window.Plotly.newPlot("physicsTimePlot", scanTraces, {
+      title: "resonance scan: steady amplitude vs drive frequency",
+      margin: { t: 42, r: 16, b: 42, l: 58 },
+      xaxis: { title: "drive frequency Omega", range: paddedRange(scanOmega), fixedrange: true },
+      yaxis: { title: "steady amplitude", range: paddedRange(scanAmplitude), fixedrange: true },
+      shapes,
+      annotations,
+      clickmode: "event",
+      hovermode: "closest",
+      uirevision: "oscillator-resonance-scan"
+    }, { responsive: true });
+    bindResonanceScanClick();
+
+    const responseTraces = [
+      {
+        x: tA,
+        y: xA,
+        name: `A: Omega=${formatHudNumber(modelA.driveOmega)}`,
+        mode: "lines",
+        line: { color: "#2563eb", width: 1.5 },
+        opacity: 0.3
+      },
+      {
+        x: [],
+        y: [],
+        name: "A elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#2563eb", width: 2.7 }
+      }
+    ];
+    if (hasB) {
+      responseTraces.push(
+        {
+          x: tB,
+          y: xB,
+          name: `B: Omega=${formatHudNumber(modelB.driveOmega)}`,
+          mode: "lines",
+          line: { color: "#f97316", width: 1.5 },
+          opacity: 0.3
+        },
+        {
+          x: [],
+          y: [],
+          name: "B elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#f97316", width: 2.7 }
+        }
+      );
+    }
+
+    window.Plotly.newPlot("physicsPhasePlot", responseTraces, {
+      title: hasB ? "steady response x(t) for Omega A and Omega B" : "steady response x(t) for Omega A",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [0, Math.max(tA[tA.length - 1] || 1, tB[tB.length - 1] || 1)], fixedrange: true },
+      yaxis: { title: "x", range: paddedRange([...xA, ...xB]), fixedrange: true },
+      shapes: [timeCursorShape(0)],
+      annotations: [timeCursorAnnotation(0)],
+      uirevision: "oscillator-resonance-response"
+    }, { responsive: true });
+
+    const phaseTraces = [
+      {
+        x: xA,
+        y: vA,
+        name: "A phase",
+        mode: "lines",
+        line: { color: "#2563eb", width: 1.5 },
+        opacity: 0.35
+      },
+      {
+        x: [],
+        y: [],
+        name: "A phase elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#2563eb", width: 2.5 }
+      },
+      {
+        x: [modelA.y0],
+        y: [modelA.v0],
+        name: "A current",
+        mode: "markers",
+        showlegend: false,
+        marker: { color: "#2563eb", size: 11, line: { color: "#ffffff", width: 2 } }
+      }
+    ];
+    if (hasB) {
+      phaseTraces.push(
+        {
+          x: xB,
+          y: vB,
+          name: "B phase",
+          mode: "lines",
+          line: { color: "#f97316", width: 1.5 },
+          opacity: 0.35
+        },
+        {
+          x: [],
+          y: [],
+          name: "B phase elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#f97316", width: 2.5 }
+        },
+        {
+          x: [modelB.y0],
+          y: [modelB.v0],
+          name: "B current",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#f97316", size: 11, line: { color: "#ffffff", width: 2 } }
+        }
+      );
+    }
+
+    window.Plotly.newPlot("physicsEnergyPlot", phaseTraces, {
+      title: hasB ? "phase comparison for the selected drive frequencies" : "phase path for the selected drive frequency",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "x", range: paddedRange([...xA, ...xB]), fixedrange: true },
+      yaxis: { title: "v", range: paddedRange([...vA, ...vB]), fixedrange: true },
+      uirevision: "oscillator-resonance-phase"
+    }, { responsive: true });
+  }
+
+  function nearestResonanceAmplitude(scan, omega) {
+    if (!scan.points.length) return 0;
+    return scan.points.reduce((best, point) => Math.abs(point.omega - omega) < Math.abs(best.omega - omega) ? point : best, scan.points[0]).amplitude;
+  }
+
+  function resonanceVerticalLine(x, color, dash = "solid") {
+    return {
+      type: "line",
+      x0: x,
+      x1: x,
+      y0: 0,
+      y1: 1,
+      yref: "paper",
+      line: { color, width: 1.5, dash }
+    };
+  }
+
+  function resonanceAnnotation(x, text, color, y = 1) {
+    return {
+      x,
+      y,
+      xref: "x",
+      yref: "paper",
+      text,
+      showarrow: false,
+      yanchor: "bottom",
+      font: { color, size: 11 },
+      bgcolor: "rgba(255,255,255,0.82)"
+    };
+  }
+
+  function bindResonanceScanClick() {
+    const plot = document.getElementById("physicsTimePlot");
+    if (!plot || !plot.on) return;
+    if (plot.removeAllListeners) plot.removeAllListeners("plotly_click");
+    plot._physicsResonanceClickHandler = event => {
+      if (currentModel?.analysisMode !== "resonance") return;
+      const point = event?.points?.[0];
+      if (!point || !isFinite(point.x)) return;
+      const compareEnabled = !!document.getElementById("physicsCompareEnabled")?.checked;
+      const target = compareEnabled ? (document.getElementById("physicsResPickTarget")?.value || "A") : "A";
+      const input = document.getElementById(target === "B" ? "physicsResOmegaB" : "physicsResOmegaA");
+      if (!input) return;
+      input.value = String(Number(point.x).toFixed(4));
+      runPhysicsSimulation();
+    };
+    plot.on("plotly_click", plot._physicsResonanceClickHandler);
+  }
+
   function drawPhysicsPlots(model, result) {
+    if (model.mode === "particle2d") {
+      drawParticlePlots(model, result);
+      return;
+    }
+    if (model.mode === "coupled") {
+      drawCoupledPlots(model, result);
+      return;
+    }
+    setExtraPhysicsPlotVisible(false);
     const t = result.points.map(point => point.t);
     const y = result.points.map(point => point.y);
     const v = result.points.map(point => point.v);
+    const compareT = currentCompareResult?.points.map(point => point.t) || [];
+    const compareY = currentCompareResult?.points.map(point => point.y) || [];
+    const compareV = currentCompareResult?.points.map(point => point.v) || [];
     const labels = variableLabels(model);
     const metrics = result.points.map(point => metricParts(model, point));
+    const compareMetrics = currentCompareResult && currentCompareModel
+      ? currentCompareResult.points.map(point => metricParts(currentCompareModel, point))
+      : [];
     const metricNames = metricLabels(model);
-    const timeYRange = paddedRange([...y, ...v]);
-
-    window.Plotly.newPlot("physicsTimePlot", [
+    const compareLabel = currentCompareModel?.isLinearCompare ? "B linear" : "B";
+    const timeYRange = paddedRange([...y, ...v, ...compareY, ...compareV]);
+    const phaseXRange = paddedRange([...y, ...compareY]);
+    const phaseYRange = paddedRange([...v, ...compareV]);
+    const timeTraces = [
       {
         x: t,
         y,
-        name: `${labels.y}(t)`,
+        name: `A: ${labels.y}(t)`,
         mode: "lines",
         line: { color: "#2563eb", width: 1.5 },
         opacity: 0.25
@@ -503,7 +1599,7 @@
       {
         x: t,
         y: v,
-        name: `${labels.v}(t)`,
+        name: `A: ${labels.v}(t)`,
         mode: "lines",
         line: { color: "#dc2626", width: 1.5 },
         opacity: 0.25
@@ -524,7 +1620,44 @@
         showlegend: false,
         line: { color: "#dc2626", width: 2.6 }
       }
-    ], {
+    ];
+    if (currentCompareResult) {
+      timeTraces.push(
+        {
+          x: compareT,
+          y: compareY,
+          name: `${compareLabel}: ${labels.y}(t)`,
+          mode: "lines",
+          line: { color: "#0ea5e9", width: 1.6, dash: "dot" },
+          opacity: 0.55
+        },
+        {
+          x: compareT,
+          y: compareV,
+          name: `${compareLabel}: ${labels.v}(t)`,
+          mode: "lines",
+          line: { color: "#f97316", width: 1.6, dash: "dot" },
+          opacity: 0.55
+        },
+        {
+          x: [],
+          y: [],
+          name: `${compareLabel} ${labels.y} elapsed`,
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#0ea5e9", width: 2.5, dash: "dot" }
+        },
+        {
+          x: [],
+          y: [],
+          name: `${compareLabel} ${labels.v} elapsed`,
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#f97316", width: 2.5, dash: "dot" }
+        }
+      );
+    }
+    window.Plotly.newPlot("physicsTimePlot", timeTraces, {
       title: `${labels.y}(t) and ${labels.v}(t)`,
       margin: { t: 42, r: 16, b: 42, l: 52 },
       xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
@@ -534,11 +1667,11 @@
       uirevision: `${model.type}-time`
     }, { responsive: true });
 
-    window.Plotly.newPlot("physicsPhasePlot", [
+    const phaseTraces = [
       {
         x: y,
         y: v,
-        name: "phase path",
+        name: "A phase path",
         mode: "lines",
         line: { color: "#111827", width: 1.5 },
         opacity: 0.25
@@ -563,15 +1696,48 @@
           line: { color: "#ffffff", width: 2 }
         }
       }
-    ], {
+    ];
+    if (currentCompareResult) {
+      phaseTraces.push(
+        {
+          x: compareY,
+          y: compareV,
+          name: `${compareLabel} phase path`,
+          mode: "lines",
+          line: { color: "#0ea5e9", width: 1.7, dash: "dot" },
+          opacity: 0.5
+        },
+        {
+          x: [],
+          y: [],
+          name: `${compareLabel} phase elapsed`,
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#0ea5e9", width: 2.7, dash: "dot" }
+        },
+        {
+          x: [currentCompareModel.y0],
+          y: [currentCompareModel.v0],
+          name: `${compareLabel} current state`,
+          mode: "markers",
+          showlegend: false,
+          marker: {
+            color: "#0ea5e9",
+            size: 11,
+            line: { color: "#ffffff", width: 2 }
+          }
+        }
+      );
+    }
+    window.Plotly.newPlot("physicsPhasePlot", phaseTraces, {
       title: `phase path: (${labels.y}, ${labels.v})`,
       margin: { t: 42, r: 16, b: 42, l: 52 },
-      xaxis: { title: labels.y, range: paddedRange(y), autorange: false, fixedrange: true },
-      yaxis: { title: labels.v, range: paddedRange(v), autorange: false, fixedrange: true },
+      xaxis: { title: labels.y, range: phaseXRange, autorange: false, fixedrange: true },
+      yaxis: { title: labels.v, range: phaseYRange, autorange: false, fixedrange: true },
       uirevision: `${model.type}-phase`
     }, { responsive: true });
 
-    window.Plotly.newPlot("physicsEnergyPlot", [
+    const energyTraces = [
       {
         x: t,
         y: metrics.map(item => item.kinetic),
@@ -620,7 +1786,28 @@
         showlegend: false,
         line: { color: "#16a34a", width: 2.8 }
       }
-    ], {
+    ];
+    if (currentCompareResult) {
+      energyTraces.push(
+        {
+          x: compareT,
+          y: compareMetrics.map(item => item.total),
+          name: `${compareLabel} ${metricNames.total}`,
+          mode: "lines",
+          line: { color: "#0ea5e9", width: 1.7, dash: "dot" },
+          opacity: 0.65
+        },
+        {
+          x: [],
+          y: [],
+          name: `${compareLabel} ${metricNames.total} elapsed`,
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#0ea5e9", width: 2.7, dash: "dot" }
+        }
+      );
+    }
+    window.Plotly.newPlot("physicsEnergyPlot", energyTraces, {
       title: metricNames.title,
       margin: { t: 42, r: 16, b: 42, l: 52 },
       xaxis: { title: "t" },
@@ -628,6 +1815,419 @@
       shapes: [timeCursorShape(model.t0)],
       annotations: [timeCursorAnnotation(model.t0)]
     }, { responsive: true });
+  }
+
+  function projectionTrace(model, points, projection) {
+    const [xKey, yKey] = projection.split("-");
+    return {
+      x: points.map(point => projectionValue(point, xKey)),
+      y: points.map(point => projectionValue(point, yKey)),
+      xLabel: projectionLabel(xKey),
+      yLabel: projectionLabel(yKey)
+    };
+  }
+
+  function projectionPoint(model, point, projection) {
+    const [xKey, yKey] = projection.split("-");
+    return {
+      x: projectionValue(point, xKey),
+      y: projectionValue(point, yKey)
+    };
+  }
+
+  function projectionValue(point, key) {
+    if (key === "y") return point.yPos;
+    return point[key];
+  }
+
+  function projectionLabel(key) {
+    if (key === "y") return "y";
+    return key;
+  }
+
+  function drawParticlePlots(model, result) {
+    drawExtraEnergyPlot(model, result);
+    const points = result.points;
+    const t = points.map(point => point.t);
+    const x = points.map(point => point.x);
+    const y = points.map(point => point.yPos);
+    const vx = points.map(point => point.vx);
+    const vy = points.map(point => point.vy);
+    window.Plotly.newPlot("physicsTimePlot", [
+      {
+        x: t,
+        y: vx,
+        name: "vx(t)",
+        mode: "lines",
+        line: { color: "#dc2626", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: t,
+        y: vy,
+        name: "vy(t)",
+        mode: "lines",
+        line: { color: "#f97316", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "vx elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#dc2626", width: 2.6 }
+      },
+      {
+        x: [],
+        y: [],
+        name: "vy elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#f97316", width: 2.6 }
+      }
+    ], {
+      title: "velocity components over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "vx, vy", range: paddedRange([...vx, ...vy]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-velocities`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsPhasePlot", [
+      {
+        x: t,
+        y: x,
+        name: "x(t)",
+        mode: "lines",
+        line: { color: "#2563eb", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: t,
+        y,
+        name: "y(t)",
+        mode: "lines",
+        line: { color: "#16a34a", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "x elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#2563eb", width: 2.6 }
+      },
+      {
+        x: [],
+        y: [],
+        name: "y elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#16a34a", width: 2.6 }
+      }
+    ], {
+      title: "coordinates over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "x, y", range: paddedRange([...x, ...y]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-coordinates`
+    }, { responsive: true });
+
+    drawParticlePhaseProjectionPlot(model, points);
+  }
+
+  function drawParticlePhaseProjectionPlot(model, points) {
+    if ((model.phaseProjection || defaultPhaseProjection(model.type)) === "particleCompare") {
+      const xPhase = projectionTrace(model, points, "x-vx");
+      const yPhase = projectionTrace(model, points, "y-vy");
+      window.Plotly.newPlot("physicsEnergyPlot", [
+        {
+          x: xPhase.x,
+          y: xPhase.y,
+          name: "x-vx path",
+          mode: "lines",
+          line: { color: "#2563eb", width: 1.5 },
+          opacity: 0.25
+        },
+        {
+          x: yPhase.x,
+          y: yPhase.y,
+          name: "y-vy path",
+          mode: "lines",
+          line: { color: "#f97316", width: 1.5 },
+          opacity: 0.25
+        },
+        {
+          x: [],
+          y: [],
+          name: "x-vx elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#2563eb", width: 2.6 }
+        },
+        {
+          x: [],
+          y: [],
+          name: "y-vy elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#f97316", width: 2.6 }
+        },
+        {
+          x: [points[0].x],
+          y: [points[0].vx],
+          name: "x-vx current",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#2563eb", size: 11, line: { color: "#fff", width: 2 } }
+        },
+        {
+          x: [points[0].yPos],
+          y: [points[0].vy],
+          name: "y-vy current",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#f97316", size: 11, line: { color: "#fff", width: 2 } }
+        }
+      ], {
+        title: "phase comparison: x-vx and y-vy",
+        margin: { t: 42, r: 16, b: 42, l: 52 },
+        xaxis: { title: "position", range: paddedRange([...xPhase.x, ...yPhase.x]), autorange: false, fixedrange: true },
+        yaxis: { title: "velocity", range: paddedRange([...xPhase.y, ...yPhase.y]), autorange: false, fixedrange: true },
+        uirevision: `${model.type}-phase-compare`
+      }, { responsive: true });
+      return;
+    }
+
+    const projection = projectionTrace(model, points, model.phaseProjection || defaultPhaseProjection(model.type));
+    const currentProjection = projectionPoint(model, points[0], model.phaseProjection || defaultPhaseProjection(model.type));
+    window.Plotly.newPlot("physicsEnergyPlot", [
+      {
+        x: projection.x,
+        y: projection.y,
+        name: "phase path",
+        mode: "lines",
+        line: { color: "#111827", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "phase elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#111827", width: 2.8 }
+      },
+      {
+        x: [currentProjection.x],
+        y: [currentProjection.y],
+        name: "current state",
+        mode: "markers",
+        showlegend: false,
+        marker: { color: "#f97316", size: 12, line: { color: "#fff", width: 2 } }
+      }
+    ], {
+      title: `phase projection: ${projection.xLabel} vs ${projection.yLabel}`,
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: projection.xLabel, range: paddedRange(projection.x), autorange: false, fixedrange: true },
+      yaxis: { title: projection.yLabel, range: paddedRange(projection.y), autorange: false, fixedrange: true },
+      uirevision: `${model.type}-phase-${model.phaseProjection}`
+    }, { responsive: true });
+  }
+
+  function drawCoupledPlots(model, result) {
+    drawExtraEnergyPlot(model, result);
+    const points = result.points;
+    const t = points.map(point => point.t);
+    const x1 = points.map(point => point.x1);
+    const x2 = points.map(point => point.x2);
+    const v1 = points.map(point => point.v1);
+    const v2 = points.map(point => point.v2);
+    window.Plotly.newPlot("physicsTimePlot", [
+      {
+        x: t,
+        y: x1,
+        name: "x1(t)",
+        mode: "lines",
+        line: { color: "#2563eb", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: t,
+        y: x2,
+        name: "x2(t)",
+        mode: "lines",
+        line: { color: "#0ea5e9", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "x1 elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#2563eb", width: 2.6 }
+      },
+      {
+        x: [],
+        y: [],
+        name: "x2 elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#0ea5e9", width: 2.6 }
+      }
+    ], {
+      title: "two displacements over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "x1, x2", range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-time`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsPhasePlot", [
+      {
+        x: t,
+        y: v1,
+        name: "v1(t)",
+        mode: "lines",
+        line: { color: "#dc2626", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: t,
+        y: v2,
+        name: "v2(t)",
+        mode: "lines",
+        line: { color: "#f97316", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "v1 elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#dc2626", width: 2.6 }
+      },
+      {
+        x: [],
+        y: [],
+        name: "v2 elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#f97316", width: 2.6 }
+      }
+    ], {
+      title: "two velocities over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "v1, v2", range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-velocities`
+    }, { responsive: true });
+
+    if ((model.phaseProjection || "coupledBoth") === "coupledBoth") {
+      window.Plotly.newPlot("physicsEnergyPlot", [
+        {
+          x: x1,
+          y: v1,
+          name: "mass 1 phase",
+          mode: "lines",
+          line: { color: "#2563eb", width: 1.5 },
+          opacity: 0.25
+        },
+        {
+          x: x2,
+          y: v2,
+          name: "mass 2 phase",
+          mode: "lines",
+          line: { color: "#0ea5e9", width: 1.5 },
+          opacity: 0.25
+        },
+        {
+          x: [],
+          y: [],
+          name: "mass 1 elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#2563eb", width: 2.7 }
+        },
+        {
+          x: [],
+          y: [],
+          name: "mass 2 elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#0ea5e9", width: 2.7 }
+        },
+        {
+          x: [model.x1],
+          y: [model.v1],
+          name: "mass 1 current",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#2563eb", size: 11, line: { color: "#fff", width: 2 } }
+        },
+        {
+          x: [model.x2],
+          y: [model.v2],
+          name: "mass 2 current",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#0ea5e9", size: 11, line: { color: "#fff", width: 2 } }
+        }
+      ], {
+        title: "phase spaces of both masses",
+        margin: { t: 42, r: 16, b: 42, l: 52 },
+        xaxis: { title: "x", range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
+        yaxis: { title: "v", range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
+        uirevision: `${model.type}-phase`
+      }, { responsive: true });
+    } else {
+      const projection = projectionTrace(model, points, model.phaseProjection);
+      const currentProjection = projectionPoint(model, points[0], model.phaseProjection);
+      window.Plotly.newPlot("physicsEnergyPlot", [
+        {
+          x: projection.x,
+          y: projection.y,
+          name: "phase projection",
+          mode: "lines",
+          line: { color: "#111827", width: 1.5 },
+          opacity: 0.25
+        },
+        {
+          x: [],
+          y: [],
+          name: "phase elapsed",
+          mode: "lines",
+          showlegend: false,
+          line: { color: "#111827", width: 2.8 }
+        },
+        {
+          x: [currentProjection.x],
+          y: [currentProjection.y],
+          name: "current state",
+          mode: "markers",
+          showlegend: false,
+          marker: { color: "#dc2626", size: 12, line: { color: "#fff", width: 2 } }
+        }
+      ], {
+        title: `phase projection: ${projection.xLabel} vs ${projection.yLabel}`,
+        margin: { t: 42, r: 16, b: 42, l: 52 },
+        xaxis: { title: projection.xLabel, range: paddedRange(projection.x), autorange: false, fixedrange: true },
+        yaxis: { title: projection.yLabel, range: paddedRange(projection.y), autorange: false, fixedrange: true },
+        uirevision: `${model.type}-phase-${model.phaseProjection}`
+      }, { responsive: true });
+    }
   }
 
   function simulatePlanarSystem(model, methodKey) {
@@ -758,6 +2358,161 @@
       key: methodKey,
       label: base ? base.label : methodKey,
       note: notes[methodKey] || "RK4 for a 2D first-order system"
+    };
+  }
+
+  function simulateParticle2D(model, methodKey) {
+    const result = simulateVectorSystem(model, methodKey, {
+      x: model.x0,
+      y: model.yParticle0,
+      vx: model.vx0,
+      vy: model.vy0
+    }, (t, state) => particleDerivative(model, t, state));
+    result.points = result.points.map(point => ({
+      ...point,
+      yPos: point.y,
+      y: point.x,
+      v: point.vx
+    }));
+    result.method = systemMethodInfo(methodKey, "2D particle");
+    return result;
+  }
+
+  function particleDerivative(model, t, state) {
+    const ax = model.acceleration.ax(state, t) - model.drag * state.vx;
+    const ay = model.acceleration.ay(state, t) - model.drag * state.vy;
+    return {
+      x: state.vx,
+      y: state.vy,
+      vx: ax,
+      vy: ay
+    };
+  }
+
+  function simulateCoupledOscillators(model, methodKey) {
+    const omega2 = model.omega * model.omega;
+    const result = simulateVectorSystem(model, methodKey, {
+      x1: model.x1,
+      v1: model.v1,
+      x2: model.x2,
+      v2: model.v2
+    }, (t, state) => ({
+      x1: state.v1,
+      v1: -omega2 * state.x1 - model.kappa * (state.x1 - state.x2) - model.gamma * state.v1,
+      x2: state.v2,
+      v2: -omega2 * state.x2 - model.kappa * (state.x2 - state.x1) - model.gamma * state.v2
+    }));
+    result.points = result.points.map(point => ({
+      ...point,
+      y: point.x1,
+      v: point.v1
+    }));
+    result.method = systemMethodInfo(methodKey, "coupled 4D system");
+    return result;
+  }
+
+  function simulateVectorSystem(model, methodKey, initialState, derivative) {
+    const t0 = finiteOr(model.t0, 0);
+    const t1 = finiteOr(model.t1, 20);
+    const requestedH = Math.abs(finiteOr(model.h, 0.03));
+    const direction = Math.sign(t1 - t0 || 1);
+    const span = Math.max(Math.abs(t1 - t0), requestedH);
+    const maxSteps = 6000;
+    const h = Math.max(requestedH, span / maxSteps) * direction;
+    const keys = Object.keys(initialState);
+    const points = [];
+    let t = t0;
+    let state = { ...initialState };
+    let previous = subtractScaledState(state, derivative(t, state), h, keys);
+    points.push({ t, ...state });
+
+    let guard = 0;
+    while ((h > 0 && t < t1) || (h < 0 && t > t1)) {
+      const step = h > 0 ? Math.min(h, t1 - t) : Math.max(h, t1 - t);
+      const before = state;
+      const tStart = t;
+      const next = stepVectorMethod(methodKey, derivative, t, state, step, previous, keys);
+      previous = before;
+      t += step;
+      const stepped = model.postStep ? model.postStep(before, next, tStart, t, step, methodKey, derivative, keys) : next;
+      const inserts = stepped?.inserts || [];
+      state = stepped?.state || stepped;
+      if (model.groundBounce && next.y < 0) {
+        previous = subtractScaledState(state, derivative(t, state), step, keys);
+      }
+      inserts.forEach(insert => {
+        points.push({ t: insert.t, ...insert });
+      });
+      points.push({ t, ...state });
+      guard++;
+      if (guard > maxSteps + 2) break;
+    }
+
+    return {
+      method: systemMethodInfo(methodKey, "system"),
+      points,
+      h,
+      limited: Math.abs(h) > requestedH
+    };
+  }
+
+  function stepVectorMethod(methodKey, derivative, t, state, h, previous, keys) {
+    if (methodKey === "euler2") return addScaledState(state, derivative(t, state), h, keys);
+    if (methodKey === "midpoint2") {
+      const k1 = derivative(t, state);
+      const mid = addScaledState(state, k1, h / 2, keys);
+      return addScaledState(state, derivative(t + h / 2, mid), h, keys);
+    }
+    if (methodKey === "verlet" && previous) {
+      return addScaledState(previous, derivative(t, state), 2 * h, keys);
+    }
+    if (methodKey === "velocityVerlet" || methodKey === "eulerCromer") {
+      const k1 = derivative(t, state);
+      const predicted = addScaledState(state, k1, h, keys);
+      const k2 = derivative(t + h, predicted);
+      return addScaledState(state, averageDerivatives(k1, k2, keys), h, keys);
+    }
+    const k1 = derivative(t, state);
+    const k2 = derivative(t + h / 2, addScaledState(state, k1, h / 2, keys));
+    const k3 = derivative(t + h / 2, addScaledState(state, k2, h / 2, keys));
+    const k4 = derivative(t + h, addScaledState(state, k3, h, keys));
+    const weighted = {};
+    keys.forEach(key => {
+      weighted[key] = (k1[key] + 2 * k2[key] + 2 * k3[key] + k4[key]) / 6;
+    });
+    return addScaledState(state, weighted, h, keys);
+  }
+
+  function addScaledState(state, delta, scale, keys) {
+    const next = {};
+    keys.forEach(key => {
+      next[key] = state[key] + scale * delta[key];
+    });
+    return next;
+  }
+
+  function subtractScaledState(state, delta, scale, keys) {
+    const next = {};
+    keys.forEach(key => {
+      next[key] = state[key] - scale * delta[key];
+    });
+    return next;
+  }
+
+  function averageDerivatives(a, b, keys) {
+    const avg = {};
+    keys.forEach(key => {
+      avg[key] = (a[key] + b[key]) / 2;
+    });
+    return avg;
+  }
+
+  function systemMethodInfo(methodKey, subject) {
+    const base = window.SecondOrderMethods?.METHOD_DEFS?.find(item => item.key === methodKey);
+    return {
+      key: methodKey,
+      label: base ? base.label : methodKey,
+      note: `${base ? base.label : methodKey} applied to a ${subject}`
     };
   }
 
@@ -908,9 +2663,31 @@
 
   function physicsStatusText(model, result) {
     const parts = [];
+    if (model.analysisMode === "resonance") {
+      if (currentResonanceScan?.peak) {
+        parts.push(`peak near Omega=${formatNumber(currentResonanceScan.peak.omega)}`);
+      }
+      if (currentResonanceScan?.predictedOmega != null) {
+        parts.push(`damped peak approx Omega=${formatNumber(currentResonanceScan.predictedOmega)}`);
+      } else {
+        parts.push("gamma=0: omega0 is sampled, but the true resonant amplitude is unbounded");
+      }
+      parts.push(model.resonance.compare
+        ? "A and B are selected drive frequencies from the resonance scan"
+        : "A is selected by clicking a scan marker");
+      if (result.limited) parts.push(`h limited to ${formatNumber(Math.abs(result.h))}`);
+      return parts.join(" | ");
+    }
     if (result.limited) parts.push(`h limited to ${formatNumber(Math.abs(result.h))}`);
     if (model.mode === "planar") parts.push(result.method.note || `2D system solved with ${result.method.label}`);
+    if (model.mode === "particle2d") parts.push(result.method.note || `2D motion solved with ${result.method.label}`);
+    if (model.mode === "coupled") parts.push(result.method.note || `coupled system solved with ${result.method.label}`);
     if (model.mode === "circuitFirstOrder" && result.note) parts.push(result.note);
+    if (model.compare?.enabled && model.type === "pendulum" && model.compare.pendulumMode === "linear") {
+      parts.push("B is the linear model: theta'' = -(g/L) theta");
+    } else if (model.compare?.enabled) {
+      parts.push("A and B use the same numerical method");
+    }
     return parts.join(" | ");
   }
 
@@ -924,7 +2701,19 @@
         physicsOmega: 1,
         physicsGamma: 0,
         physicsDriveA: 0,
-        physicsDriveOmega: 0
+        physicsDriveOmega: 0,
+        physicsOscillatorMode: "simulation",
+        physicsResOmegaMin: 0.1,
+        physicsResOmegaMax: 2.5,
+        physicsResSamples: 48,
+        physicsResOmegaA: 0.6,
+        physicsResOmegaB: 1,
+        physicsResSettleCycles: 20,
+        physicsResMeasureCycles: 8,
+        physicsOscillatorAnimation: "spring",
+        physicsCompareY0: 1.4,
+        physicsCompareV0: 0,
+        physicsCompareOmega: 1.2
       },
       pendulum: {
         physicsT1: 20,
@@ -935,7 +2724,58 @@
         physicsDriveA: 0,
         physicsDriveOmega: 0,
         physicsLength: 1,
-        physicsG: 9.81
+        physicsG: 9.81,
+        physicsCompareY0: 1.5,
+        physicsCompareV0: 0,
+        physicsCompareLength: 1
+      },
+      projectile: {
+        physicsT1: 3,
+        physicsH: 0.01,
+        physicsParticleX0: 0,
+        physicsParticleY0: 0,
+        physicsParticleVx0: 5,
+        physicsParticleVy0: 8,
+        physicsParticleDrag: 0,
+        physicsProjectileG: 9.81,
+        physicsPhaseProjection: "particleCompare"
+      },
+      verticalBounce: {
+        physicsT1: 10,
+        physicsH: 0.01,
+        physicsBounceY0: 3,
+        physicsBounceVy0: 8,
+        physicsParticleDrag: 0,
+        physicsProjectileG: 9.81,
+        physicsBounceRestitution: 0.8,
+        physicsPhaseProjection: "y-vy"
+      },
+      chargedParticle: {
+        physicsT1: 8,
+        physicsH: 0.02,
+        physicsParticleX0: 0,
+        physicsParticleY0: 0,
+        physicsParticleVx0: 1,
+        physicsParticleVy0: 2,
+        physicsParticleDrag: 0,
+        physicsParticleCharge: 1,
+        physicsParticleMass: 1,
+        physicsElectricEx: 1,
+        physicsElectricEy: 0,
+        physicsMagneticB: 0.6,
+        physicsPhaseProjection: "particleCompare"
+      },
+      coupledOscillators: {
+        physicsT1: 35,
+        physicsH: 0.03,
+        physicsCoupledOmega: 1,
+        physicsCoupledKappa: 0.35,
+        physicsCoupledGamma: 0,
+        physicsCoupledX1: 1,
+        physicsCoupledV1: 0,
+        physicsCoupledX2: 0,
+        physicsCoupledV2: 0,
+        physicsPhaseProjection: "coupledBoth"
       },
       rlc: {
         physicsT1: 30,
@@ -946,7 +2786,14 @@
         physicsCircuitC: 1,
         physicsCircuitR: 0.2,
         physicsCircuitV: 0,
-        physicsCircuitOmega: 0
+        physicsCircuitOmega: 0,
+        physicsCompareY0: 1,
+        physicsCompareV0: 0,
+        physicsCompareCircuitL: 1,
+        physicsCompareCircuitC: 1,
+        physicsCompareCircuitR: 0.4,
+        physicsCompareCircuitV: 0,
+        physicsCompareCircuitOmega: 0
       },
       predatorPrey: {
         physicsT1: 40,
@@ -956,7 +2803,13 @@
         physicsPredAlpha: 0.55,
         physicsPredBeta: 0.02,
         physicsPredDelta: 0.01,
-        physicsPredGamma: 0.4
+        physicsPredGamma: 0.4,
+        physicsCompareY0: 45,
+        physicsCompareV0: 15,
+        physicsComparePredAlpha: 0.55,
+        physicsComparePredBeta: 0.024,
+        physicsComparePredDelta: 0.01,
+        physicsComparePredGamma: 0.4
       },
       neuron: {
         physicsT1: 80,
@@ -995,6 +2848,7 @@
     const canvas = document.getElementById("physicsCanvas");
     const ctx = canvas.getContext("2d");
     const state = interpolateState(currentResult.points, t);
+    const compareState = currentCompareResult ? interpolateState(currentCompareResult.points, t) : null;
     const width = canvas.width;
     const height = canvas.height;
     ctx.clearRect(0, 0, width, height);
@@ -1002,28 +2856,72 @@
     ctx.fillRect(0, 0, width, height);
 
     if (currentModel.type === "pendulum") {
-      drawPendulum(ctx, width, height, state, currentModel);
+      if (compareState && currentCompareModel) {
+        drawPendulum(ctx, width, height, state, currentModel, { pivotX: width * 0.38, color: "#7c3aed", label: "A" });
+        drawPendulum(ctx, width, height, compareState, currentCompareModel, { pivotX: width * 0.62, color: "#0ea5e9", label: currentCompareModel.isLinearCompare ? "B lin" : "B" });
+      } else {
+        drawPendulum(ctx, width, height, state, currentModel);
+      }
     } else if (currentModel.type === "rlc") {
-      drawRlcCircuit(ctx, width, height, state, currentModel);
+      if (compareState && currentCompareModel) {
+        drawRlcCircuit(ctx, width, height, state, currentModel, { regionTop: height * 0.08, regionHeight: height * 0.42, label: "A" });
+        drawRlcCircuit(ctx, width, height, compareState, currentCompareModel, { regionTop: height * 0.52, regionHeight: height * 0.42, label: "B" });
+      } else {
+        drawRlcCircuit(ctx, width, height, state, currentModel);
+      }
+    } else if (currentModel.mode === "particle2d") {
+      drawParticle2D(ctx, width, height, state, currentModel);
+    } else if (currentModel.mode === "coupled") {
+      drawCoupledOscillators(ctx, width, height, state, currentModel);
     } else if (currentModel.type === "predatorPrey") {
-      drawPredatorPrey(ctx, width, height, state, currentModel);
+      if (compareState && currentCompareModel) {
+        const predatorUnit = predatorCompareIconUnit(ctx, width, height);
+        drawPredatorPrey(ctx, width, height, state, currentModel, {
+          regionTop: height * 0.06,
+          regionHeight: height * 0.42,
+          label: "A",
+          unit: predatorUnit
+        });
+        drawPredatorPrey(ctx, width, height, compareState, currentCompareModel, {
+          regionTop: height * 0.52,
+          regionHeight: height * 0.42,
+          label: "B",
+          unit: predatorUnit
+        });
+      } else {
+        drawPredatorPrey(ctx, width, height, state, currentModel);
+      }
     } else if (currentModel.type === "neuron") {
       drawNeuron(ctx, width, height, state, currentModel);
     } else {
-      drawOscillator(ctx, width, height, state, currentModel);
+      const xLimit = oscillatorVisualLimit();
+      if (compareState && currentCompareModel) {
+        const draw = currentModel.oscillatorAnimation === "potential" ? drawOscillatorPotentialWell : drawOscillator;
+        draw(ctx, width, height, state, currentModel, { centerY: height * 0.38, color: "#2563eb", label: "A", xLimit });
+        draw(ctx, width, height, compareState, currentCompareModel, { centerY: height * 0.68, color: "#0ea5e9", label: "B", xLimit });
+      } else {
+        if (currentModel.oscillatorAnimation === "potential") {
+          drawOscillatorPotentialWell(ctx, width, height, state, currentModel, { xLimit });
+        } else {
+          drawOscillator(ctx, width, height, state, currentModel, { xLimit });
+        }
+      }
     }
 
-    drawCanvasHud(ctx, state, currentModel);
+    if (currentModel.type !== "predatorPrey") {
+      drawCanvasHud(ctx, state, currentModel, compareState);
+    }
     updateTimeControls(t);
     updatePlotCursors(t, state, options.forcePlotUpdate);
   }
 
-  function drawOscillator(ctx, width, height, state, model) {
-    const centerY = height * 0.55;
+  function drawOscillator(ctx, width, height, state, model, options = {}) {
+    const centerY = options.centerY ?? height * 0.55;
     const wallX = width * 0.12;
     const originX = width * 0.52;
-    const scale = width * 0.16;
-    const massX = originX + clamp(state.y, -2, 2) * scale;
+    const xLimit = Math.max(options.xLimit || 2, 1e-6);
+    const scale = width * 0.16 / xLimit;
+    const massX = originX + clamp(state.y, -xLimit, xLimit) * scale;
     const massW = 58;
     const massH = 46;
     const massLeft = massX - massW / 2;
@@ -1055,7 +2953,7 @@
 
     ctx.fillStyle = "#64748b";
     ctx.font = "12px Arial";
-    [-2, -1, 0, 1, 2].forEach(tick => {
+    [-xLimit, -xLimit / 2, 0, xLimit / 2, xLimit].forEach(tick => {
       const tickX = originX + tick * scale;
       ctx.strokeStyle = tick === 0 ? "#64748b" : "#cbd5e1";
       ctx.lineWidth = tick === 0 ? 1.6 : 1;
@@ -1063,16 +2961,17 @@
       ctx.moveTo(tickX, centerY + 36);
       ctx.lineTo(tickX, centerY + 58);
       ctx.stroke();
-      ctx.fillText(`x=${tick}`, tickX - 12, centerY + 74);
+      ctx.fillText(`x=${formatHudNumber(tick)}`, tickX - 18, centerY + 74);
     });
 
-    ctx.fillStyle = hasDriver ? "#f97316" : "#2563eb";
+    ctx.fillStyle = hasDriver ? "#f97316" : (options.color || "#2563eb");
     ctx.strokeStyle = "#0f172a";
     ctx.lineWidth = 2;
     ctx.fillRect(massLeft, centerY - massH / 2, massW, massH);
     ctx.strokeRect(massLeft, centerY - massH / 2, massW, massH);
 
     drawMassCenterMarker(ctx, massX, centerY, massH);
+    drawCanvasObjectLabel(ctx, options.label, massX, centerY - massH / 2 - 12, options.color || "#2563eb");
 
     if (hasDamping) {
       drawForceArrow(ctx, massX, centerY + 104, dampingForce, "#0891b2", "Fdrag");
@@ -1086,8 +2985,447 @@
     }
   }
 
-  function drawPendulum(ctx, width, height, state, model) {
-    const pivotX = width / 2;
+  function drawOscillatorPotentialWell(ctx, width, height, state, model, options = {}) {
+    const centerY = options.centerY ?? height * 0.56;
+    const xLimit = Math.max(options.xLimit || 2, 1e-6);
+    const left = width * 0.18;
+    const right = width * 0.88;
+    const bottom = centerY + 88;
+    const wellHeight = options.label ? 86 : 150;
+    const scaleX = (right - left) / (2 * xLimit);
+    const omega2 = model.omega * model.omega;
+    const energy = 0.5 * state.v * state.v + 0.5 * omega2 * state.y * state.y;
+    const referencePotential = Math.max(0.5 * xLimit * xLimit, energy, 1);
+    const energyY = bottom - clamp(energy / referencePotential, 0, 1.18) * wellHeight;
+    const mapX = x => (left + right) / 2 + x * scaleX;
+    const mapY = x => bottom - clamp(0.5 * omega2 * x * x / referencePotential, 0, 1.18) * wellHeight;
+    const clampedX = clamp(state.y, -xLimit, xLimit);
+    const ballX = mapX(clampedX);
+    const ballY = mapY(clampedX);
+
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(left, bottom);
+    ctx.lineTo(right, bottom);
+    ctx.stroke();
+
+    drawPotentialScaleAxis(ctx, width * 0.08, bottom, wellHeight, referencePotential);
+
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i <= 90; i++) {
+      const x = -xLimit + 2 * xLimit * i / 90;
+      const px = mapX(x);
+      const py = mapY(x);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(22, 163, 74, 0.72)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(left, energyY);
+    ctx.lineTo(right, energyY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#166534";
+    ctx.font = "12px Arial";
+    ctx.fillText("E", right - 18, energyY - 6);
+    drawPotentialWellCaption(ctx, width * 0.08, bottom + 50, omega2);
+
+    ctx.fillStyle = options.color || "#2563eb";
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(ballX, ballY - 14, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawCanvasObjectLabel(ctx, options.label, ballX, ballY - 42, options.color || "#2563eb");
+
+    ctx.fillStyle = "#475569";
+    ctx.font = "12px Arial";
+    [-xLimit, 0, xLimit].forEach(tick => {
+      const tickX = mapX(tick);
+      ctx.strokeStyle = tick === 0 ? "#64748b" : "#cbd5e1";
+      ctx.lineWidth = tick === 0 ? 1.6 : 1;
+      ctx.beginPath();
+      ctx.moveTo(tickX, bottom - 6);
+      ctx.lineTo(tickX, bottom + 12);
+      ctx.stroke();
+      ctx.fillText(formatHudNumber(tick), tickX - 12, bottom + 28);
+    });
+  }
+
+  function drawPotentialScaleAxis(ctx, axisX, bottom, height, referencePotential) {
+    ctx.strokeStyle = "#64748b";
+    ctx.fillStyle = "#475569";
+    ctx.lineWidth = 1.4;
+    ctx.font = "11px Arial";
+    ctx.beginPath();
+    ctx.moveTo(axisX, bottom);
+    ctx.lineTo(axisX, bottom - height);
+    ctx.stroke();
+    ctx.fillText("V", axisX - 4, bottom - height - 8);
+    [0, 0.5, 1].forEach(fraction => {
+      const y = bottom - height * fraction;
+      const value = referencePotential * fraction;
+      ctx.beginPath();
+      ctx.moveTo(axisX - 5, y);
+      ctx.lineTo(axisX + 5, y);
+      ctx.stroke();
+      ctx.fillText(formatHudNumber(value), axisX + 8, y + 4);
+    });
+  }
+
+  function drawPotentialWellCaption(ctx, x, y, omega2) {
+    ctx.fillStyle = "rgba(255,255,255,0.86)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.75)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(x - 8, y - 18, 118, 42);
+    ctx.strokeRect(x - 8, y - 18, 118, 42);
+    ctx.fillStyle = "#475569";
+    ctx.font = "11px Arial";
+    ctx.fillText("curvature", x, y - 2);
+    ctx.fillText(`~ \u03c9\u00b2=${formatHudNumber(omega2)}`, x, y + 15);
+  }
+
+  function drawParticle2D(ctx, width, height, state, model) {
+    const bounds = particleCanvasBounds();
+    const margin = 46;
+    const plotLeft = margin;
+    const plotRight = width - margin;
+    const plotTop = 46;
+    const plotBottom = height - 42;
+    const scaleX = (plotRight - plotLeft) / Math.max(bounds.maxX - bounds.minX, 1e-6);
+    const scaleY = (plotBottom - plotTop) / Math.max(bounds.maxY - bounds.minY, 1e-6);
+    const scale = Math.min(scaleX, scaleY);
+    const offsetX = (plotLeft + plotRight) / 2 - (bounds.minX + bounds.maxX) * scale / 2;
+    const offsetY = (plotTop + plotBottom) / 2 + (bounds.minY + bounds.maxY) * scale / 2;
+    const map = point => ({
+      x: offsetX + point.x * scale,
+      y: offsetY - point.yPos * scale
+    });
+    const points = currentResult.points;
+    const currentIndex = points.findIndex(point => point.t >= state.t);
+    const visibleEnd = currentIndex < 0 ? points.length : currentIndex + 1;
+
+    drawParticleField(ctx, width, height, model, state);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+    drawParticleAxes(ctx, bounds, map, plotLeft, plotRight, plotTop, plotBottom);
+
+    if (model.type === "projectile" || model.type === "verticalBounce") {
+      const ground = map({ x: 0, yPos: 0 });
+      ctx.strokeStyle = "#16a34a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(plotLeft, ground.y);
+      ctx.lineTo(plotRight, ground.y);
+      ctx.stroke();
+      ctx.fillStyle = "#166534";
+      ctx.font = "12px Arial";
+      ctx.fillText("ground y=0", plotRight - 90, ground.y - 8);
+    }
+
+    ctx.strokeStyle = "rgba(37, 99, 235, 0.28)";
+    ctx.lineWidth = 2;
+    drawMappedPath(ctx, points, map);
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 3;
+    drawMappedPath(ctx, points.slice(0, Math.max(visibleEnd, 1)), map);
+
+    const p = map(state);
+    ctx.fillStyle = model.type === "chargedParticle" && !hasElectricField(model) && Math.abs(model.params.bz || 0) > 1e-9 ? "#7c3aed" : "#f97316";
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawVectorArrow(ctx, p.x, p.y, state.vx, -state.vy, "#334155", "v", 24);
+
+    drawParticleCanvasHud(ctx, width, height, state, model, bounds);
+  }
+
+  function drawParticleAxes(ctx, bounds, map, left, right, top, bottom) {
+    const xTicks = niceTicks(bounds.minX, bounds.maxX, 5);
+    const yTicks = niceTicks(bounds.minY, bounds.maxY, 4);
+    ctx.save();
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.38)";
+    ctx.fillStyle = "#64748b";
+    ctx.lineWidth = 1;
+    ctx.font = "11px Arial";
+    xTicks.forEach(value => {
+      const x = map({ x: value, yPos: 0 }).x;
+      if (x < left || x > right) return;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+      ctx.fillText(formatAxisTick(value), x - 10, bottom + 16);
+    });
+    yTicks.forEach(value => {
+      const y = map({ x: 0, yPos: value }).y;
+      if (y < top || y > bottom) return;
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.stroke();
+      ctx.fillText(formatAxisTick(value), left - 38, y + 4);
+    });
+    if (bounds.minX <= 0 && bounds.maxX >= 0) {
+      const axisX = map({ x: 0, yPos: 0 }).x;
+      ctx.strokeStyle = "rgba(71, 85, 105, 0.72)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(axisX, top);
+      ctx.lineTo(axisX, bottom);
+      ctx.stroke();
+      ctx.fillText("x=0", axisX + 5, top + 14);
+    }
+    if (bounds.minY <= 0 && bounds.maxY >= 0) {
+      const axisY = map({ x: 0, yPos: 0 }).y;
+      ctx.strokeStyle = "rgba(71, 85, 105, 0.72)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(left, axisY);
+      ctx.lineTo(right, axisY);
+      ctx.stroke();
+      ctx.fillText("y=0", right - 34, axisY - 6);
+    }
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px Arial";
+    ctx.fillText("x", right - 10, bottom + 17);
+    ctx.fillText("y", left - 34, top + 12);
+    ctx.restore();
+  }
+
+  function drawParticleCanvasHud(ctx, width, height, state, model, bounds) {
+    const viewWidth = bounds.maxX - bounds.minX;
+    const viewHeight = bounds.maxY - bounds.minY;
+    const lines = model.type === "verticalBounce"
+      ? [
+          `y=${formatHudNumber(state.yPos)}`,
+          `vy=${formatHudNumber(state.vy)}`,
+          `e=${formatHudNumber(model.restitution)}`,
+          `view y=${formatHudNumber(viewHeight)}`
+        ]
+      : [
+          `x=${formatHudNumber(state.x)}  y=${formatHudNumber(state.yPos)}`,
+          `vx=${formatHudNumber(state.vx)}  vy=${formatHudNumber(state.vy)}`,
+          `view ${formatHudNumber(viewWidth)} x ${formatHudNumber(viewHeight)}`
+        ];
+    const boxX = width - 154;
+    const boxY = 14;
+    const boxH = 22 + lines.length * 17;
+    ctx.fillStyle = "rgba(255,255,255,0.86)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(boxX, boxY, 138, boxH);
+    ctx.strokeRect(boxX, boxY, 138, boxH);
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px Arial";
+    lines.forEach((line, index) => {
+      ctx.fillText(line, boxX + 10, boxY + 20 + index * 17);
+    });
+  }
+
+  function drawParticleField(ctx, width, height, model, state) {
+    if (model.type === "projectile" || model.type === "verticalBounce") {
+      drawVectorArrow(ctx, width - 76, 72, 0, 1, "#64748b", "g", 34);
+      ctx.fillStyle = "rgba(34, 197, 94, 0.08)";
+      ctx.fillRect(0, height - 34, width, 34);
+      return;
+    }
+    if (model.type === "chargedParticle") {
+      const ex = model.params.ex || 0;
+      const ey = model.params.ey || 0;
+      const bz = model.params.bz || 0;
+      if (Math.hypot(ex, ey) > 1e-9) {
+        for (let y = 78; y < height - 42; y += 54) {
+          for (let x = 86; x < width - 40; x += 76) {
+            drawVectorArrow(ctx, x, y, ex, -ey, "rgba(249, 115, 22, 0.5)", "E", 24);
+          }
+        }
+      }
+      if (Math.abs(bz) > 1e-9) drawMagneticFieldSymbols(ctx, width, height, bz);
+      return;
+    }
+  }
+
+  function drawMagneticFieldSymbols(ctx, width, height, bz) {
+    const outward = bz >= 0;
+    ctx.strokeStyle = "rgba(124, 58, 237, 0.45)";
+    ctx.fillStyle = "rgba(124, 58, 237, 0.45)";
+    ctx.lineWidth = 1.7;
+    for (let y = 76; y < height - 42; y += 48) {
+      for (let x = 80; x < width - 40; x += 62) {
+        if (outward) {
+          ctx.beginPath();
+          ctx.arc(x, y, 6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(x, y, 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(x - 6, y - 6);
+          ctx.lineTo(x + 6, y + 6);
+          ctx.moveTo(x + 6, y - 6);
+          ctx.lineTo(x - 6, y + 6);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = "#6d28d9";
+    ctx.font = "12px Arial";
+    ctx.fillText(outward ? "B out of screen" : "B into screen", width - 142, 28);
+  }
+
+  function drawCoupledOscillators(ctx, width, height, state, model) {
+    const centerY = height * 0.57;
+    const wallLeft = width * 0.1;
+    const wallRight = width * 0.9;
+    const rest1 = width * 0.38;
+    const rest2 = width * 0.62;
+    const maxAbs = Math.max(
+      1,
+      ...(currentResult?.points || []).flatMap(point => [Math.abs(point.x1 || 0), Math.abs(point.x2 || 0)])
+    );
+    const scale = width * 0.11 / maxAbs;
+    const x1 = rest1 + clamp(state.x1, -maxAbs, maxAbs) * scale;
+    const x2 = rest2 + clamp(state.x2, -maxAbs, maxAbs) * scale;
+    const massW = 48;
+    const massH = 42;
+
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(wallLeft, centerY - 70);
+    ctx.lineTo(wallLeft, centerY + 70);
+    ctx.moveTo(wallRight, centerY - 70);
+    ctx.lineTo(wallRight, centerY + 70);
+    ctx.stroke();
+
+    drawSpring(ctx, wallLeft, centerY, x1 - massW / 2, centerY, 9, 13);
+    drawSpring(ctx, x1 + massW / 2, centerY, x2 - massW / 2, centerY, 9, 13);
+    drawSpring(ctx, x2 + massW / 2, centerY, wallRight, centerY, 9, 13);
+
+    drawCoupledMass(ctx, x1, centerY, massW, massH, "#2563eb", "1");
+    drawCoupledMass(ctx, x2, centerY, massW, massH, "#0ea5e9", "2");
+
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(width * 0.16, centerY + 50);
+    ctx.lineTo(width * 0.84, centerY + 50);
+    ctx.stroke();
+    [rest1, rest2].forEach((rest, index) => {
+      ctx.strokeStyle = "#64748b";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(rest, centerY + 38);
+      ctx.lineTo(rest, centerY + 62);
+      ctx.stroke();
+      ctx.fillStyle = "#475569";
+      ctx.font = "12px Arial";
+      ctx.fillText(`x${index + 1}=0`, rest - 18, centerY + 78);
+    });
+
+    ctx.fillStyle = "#334155";
+    ctx.font = "13px Arial";
+    ctx.fillText(`x1=${formatHudNumber(state.x1)}  v1=${formatHudNumber(state.v1)}`, 18, 52);
+    ctx.fillText(`x2=${formatHudNumber(state.x2)}  v2=${formatHudNumber(state.v2)}`, 18, 72);
+  }
+
+  function drawCoupledMass(ctx, x, y, w, h, color, label) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
+    ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 15px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x, y + 5);
+    ctx.textAlign = "start";
+  }
+
+  function particleCanvasBounds() {
+    const points = currentResult?.points || [];
+    const x = points.map(point => point.x);
+    const y = points.map(point => point.yPos);
+    const minX = Math.min(...x);
+    const maxX = Math.max(...x);
+    const minY = Math.min(...y);
+    const maxY = Math.max(...y);
+    const xPad = Math.max((maxX - minX) * 0.08, 0.5);
+    const yPad = Math.max((maxY - minY) * 0.08, 0.5);
+    return {
+      minX: minX - xPad,
+      maxX: maxX + xPad,
+      minY: minY - yPad,
+      maxY: maxY + yPad
+    };
+  }
+
+  function drawMappedPath(ctx, points, map) {
+    if (!points.length) return;
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      const mapped = map(point);
+      if (index === 0) ctx.moveTo(mapped.x, mapped.y);
+      else ctx.lineTo(mapped.x, mapped.y);
+    });
+    ctx.stroke();
+  }
+
+  function drawVectorArrow(ctx, x, y, vx, vy, color, label, baseLength = 32) {
+    const mag = Math.hypot(vx, vy);
+    if (mag < 1e-9) return;
+    const len = baseLength * clamp(mag, 0.35, 2.4);
+    const ux = vx / mag;
+    const uy = vy / mag;
+    const endX = x + ux * len;
+    const endY = y + uy * len;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - ux * 9 - uy * 5, endY - uy * 9 + ux * 5);
+    ctx.lineTo(endX - ux * 9 + uy * 5, endY - uy * 9 - ux * 5);
+    ctx.closePath();
+    ctx.fill();
+    if (label) {
+      ctx.font = "12px Arial";
+      ctx.fillText(label, endX + 5, endY - 5);
+    }
+  }
+
+  function oscillatorVisualLimit() {
+    const points = [
+      ...(currentResult?.points || []),
+      ...(currentCompareResult?.points || [])
+    ];
+    const maxAbs = points.reduce((max, point) => Math.max(max, Math.abs(point.y || 0)), 0);
+    const rawLimit = Math.max(2, maxAbs * 1.15);
+    if (rawLimit <= 5) return Math.ceil(rawLimit);
+    const power = Math.pow(10, Math.floor(Math.log10(rawLimit)));
+    return Math.ceil(rawLimit / power) * power;
+  }
+
+  function drawPendulum(ctx, width, height, state, model, options = {}) {
+    const pivotX = options.pivotX ?? width / 2;
     const pivotY = height * 0.18;
     const visualLength = pendulumVisualLength(width, height, model.length);
     const bobX = pivotX + visualLength * Math.sin(state.y);
@@ -1114,13 +3452,14 @@
     ctx.arc(pivotX, pivotY, 6, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "#7c3aed";
+    ctx.fillStyle = options.color || "#7c3aed";
     ctx.strokeStyle = "#0f172a";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(bobX, bobY, 22, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    drawCanvasObjectLabel(ctx, options.label, bobX, bobY - 32, options.color || "#7c3aed");
 
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 1.5;
@@ -1140,11 +3479,13 @@
     }
   }
 
-  function drawRlcCircuit(ctx, width, height, state, model) {
+  function drawRlcCircuit(ctx, width, height, state, model, options = {}) {
+    const regionTop = options.regionTop ?? 0;
+    const regionHeight = options.regionHeight ?? height;
     const left = width * 0.16;
     const right = width * 0.84;
-    const top = height * 0.25;
-    const bottom = height * 0.64;
+    const top = regionTop + regionHeight * 0.22;
+    const bottom = regionTop + regionHeight * 0.74;
     const midY = (top + bottom) / 2;
     const current = state.v;
     const voltage = circuitVoltage(model, state.t);
@@ -1153,9 +3494,11 @@
     const resistorEnd = width * 0.52;
     const inductorStart = width * 0.46;
     const inductorEnd = width * 0.66;
-    const capHeight = 88;
+    const capHeight = Math.min(88, regionHeight * 0.34);
     const capGap = 18;
     const hasSource = Math.abs(model.circuitV) > 1e-9;
+
+    drawCanvasObjectLabel(ctx, options.label, width * 0.08, top + 5, options.label === "B" ? "#0ea5e9" : "#2563eb");
 
     ctx.strokeStyle = "#334155";
     ctx.lineWidth = 3;
@@ -1203,9 +3546,13 @@
     if (hasSource) ctx.fillText(`Vext=${formatHudNumber(voltage)}`, left - 56, midY + 78);
   }
 
-  function drawPredatorPrey(ctx, width, height, state, model) {
-    const meadowTop = height * 0.18;
-    const meadowBottom = height * 0.78;
+  function drawPredatorPrey(ctx, width, height, state, model, options = {}) {
+    const regionTop = options.regionTop ?? 0;
+    const regionHeight = options.regionHeight ?? height;
+    const comparePanel = !!options.label;
+    const headerTop = regionTop + regionHeight * 0.03;
+    const meadowTop = regionTop + regionHeight * (comparePanel ? 0.31 : 0.2);
+    const meadowBottom = regionTop + regionHeight * 0.76;
     const prey = Math.max(state.y, 0);
     const wolves = Math.max(state.v, 0);
     const rates = model.derivative(state.t, prey, wolves);
@@ -1213,7 +3560,7 @@
     const meadowWidth = width * 0.84;
     const meadowHeight = meadowBottom - meadowTop;
     const dividerX = meadowLeft + meadowWidth * 0.62;
-    const iconTop = meadowTop + 34;
+    const iconTop = meadowTop + 12;
     const iconBottom = meadowBottom - 14;
     const sheepArea = {
       x: meadowLeft + 16,
@@ -1227,7 +3574,7 @@
       width: meadowLeft + meadowWidth - dividerX - 32,
       height: iconBottom - iconTop
     };
-    const unit = predatorIconUnit(ctx, sheepArea, wolfArea);
+    const unit = options.unit || predatorIconUnit(ctx, sheepArea, wolfArea, [currentResult]);
 
     ctx.fillStyle = "#ecfdf5";
     ctx.fillRect(meadowLeft, meadowTop, meadowWidth, meadowHeight);
@@ -1242,23 +3589,25 @@
     ctx.lineTo(dividerX, meadowBottom - 12);
     ctx.stroke();
 
-    drawPredatorLabels(ctx, meadowLeft, meadowTop, meadowWidth, prey, wolves, rates, unit);
+    drawPredatorLabels(ctx, meadowLeft, headerTop, meadowWidth, prey, wolves, rates, unit, options.label);
     drawPopulationIcons(ctx, sheepArea.x, sheepArea.y, sheepArea.width, sheepArea.height, prey, unit, "sheep");
     drawPopulationIcons(ctx, wolfArea.x, wolfArea.y, wolfArea.width, wolfArea.height, wolves, unit, "wolf");
 
-    drawPopulationBar(ctx, width * 0.16, height * 0.84, width * 0.3, prey, "#2563eb", "sheep");
-    drawPopulationBar(ctx, width * 0.54, height * 0.84, width * 0.3, wolves, "#dc2626", "wolves");
+    drawPopulationBar(ctx, width * 0.16, regionTop + regionHeight * 0.84, width * 0.3, prey, "#2563eb", "sheep");
+    drawPopulationBar(ctx, width * 0.54, regionTop + regionHeight * 0.84, width * 0.3, wolves, "#dc2626", "wolves");
   }
 
-  function drawPredatorLabels(ctx, x, y, width, prey, wolves, rates, unit) {
+  function drawPredatorLabels(ctx, x, y, width, prey, wolves, rates, unit, label = "", options = {}) {
     ctx.fillStyle = "#166534";
     ctx.font = "bold 12px Arial";
-    ctx.fillText("Lotka-Volterra", x + 12, y + 17);
+    const titleY = y + 12;
+    const detailY = y + 28;
+    ctx.fillText(`${label ? `${label}: ` : ""}Lotka-Volterra`, x + 12, titleY);
     ctx.fillStyle = "#475569";
     ctx.font = "11px Arial";
-    ctx.fillText(`1 icon = ${formatHudNumber(unit)}`, x + width - 92, y + 17);
-    ctx.fillText(`sheep ${formatHudNumber(prey)} | rate ${formatHudNumber(rates.y)}`, x + 12, y + 33);
-    ctx.fillText(`wolves ${formatHudNumber(wolves)} | rate ${formatHudNumber(rates.v)}`, x + width * 0.62 + 12, y + 33);
+    ctx.fillText(`1 icon = ${formatHudNumber(unit)}`, x + width - 92, titleY);
+    ctx.fillText(`sheep ${formatHudNumber(prey)} | rate ${formatHudNumber(rates.y)}`, x + 12, detailY);
+    ctx.fillText(`wolves ${formatHudNumber(wolves)} | rate ${formatHudNumber(rates.v)}`, x + width * 0.62 + 12, detailY);
   }
 
   function drawNeuron(ctx, width, height, state, model) {
@@ -1640,8 +3989,30 @@
     ctx.restore();
   }
 
-  function predatorIconUnit(ctx, sheepArea, wolfArea) {
-    const maxPopulation = Math.max(...(currentResult?.points || [{ y: 1, v: 1 }]).map(point => Math.max(point.y, point.v, 0)), 1);
+  function predatorCompareIconUnit(ctx, width, height) {
+    const regionHeight = height * 0.42;
+    const meadowLeft = width * 0.08;
+    const meadowWidth = width * 0.84;
+    const meadowHeight = regionHeight * 0.68;
+    const dividerX = meadowLeft + meadowWidth * 0.62;
+    const iconTop = 34;
+    const iconBottom = meadowHeight - 14;
+    const sheepArea = {
+      width: dividerX - meadowLeft - 32,
+      height: Math.max(iconBottom - iconTop, 24)
+    };
+    const wolfArea = {
+      width: meadowLeft + meadowWidth - dividerX - 32,
+      height: Math.max(iconBottom - iconTop, 24)
+    };
+    return predatorIconUnit(ctx, sheepArea, wolfArea, [currentResult, currentCompareResult]);
+  }
+
+  function predatorIconUnit(ctx, sheepArea, wolfArea, results = [currentResult]) {
+    const points = results
+      .filter(Boolean)
+      .flatMap(result => result.points || []);
+    const maxPopulation = Math.max(...(points.length ? points : [{ y: 1, v: 1 }]).map(point => Math.max(point.y, point.v, 0)), 1);
     const sheepCapacity = populationIconCapacity(ctx, sheepArea.width, sheepArea.height, "sheep");
     const wolfCapacity = populationIconCapacity(ctx, wolfArea.width, wolfArea.height, "wolf");
     const sharedCapacity = Math.max(Math.min(sheepCapacity, wolfCapacity), 1);
@@ -2182,11 +4553,29 @@
     }
   }
 
-  function drawCanvasHud(ctx, state, model) {
+  function drawCanvasObjectLabel(ctx, label, x, y, color) {
+    if (!label) return;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 4;
+    ctx.font = "bold 15px Arial";
+    ctx.textAlign = "center";
+    ctx.strokeText(label, x, y);
+    ctx.fillText(label, x, y);
+    ctx.restore();
+  }
+
+  function drawCanvasHud(ctx, state, model, compareState = null) {
     ctx.fillStyle = "#334155";
     ctx.font = "15px Arial";
     const labels = variableLabels(model);
-    ctx.fillText(`t=${formatHudNumber(state.t)}   ${labels.y}=${formatHudNumber(state.y)}   ${labels.v}=${formatHudNumber(state.v)}`, 18, 28);
+    const main = `t=${formatTimeValue(state.t)}   A: ${labels.y}=${formatHudNumber(state.y)}   ${labels.v}=${formatHudNumber(state.v)}`;
+    ctx.fillText(main, 18, 28);
+    if (compareState) {
+      ctx.fillStyle = "#0369a1";
+      ctx.fillText(`B: ${labels.y}=${formatHudNumber(compareState.y)}   ${labels.v}=${formatHudNumber(compareState.v)}`, 18, 50);
+    }
   }
 
   function interpolateState(points, t) {
@@ -2197,11 +4586,14 @@
       const b = points[i + 1];
       if (t >= a.t && t <= b.t) {
         const fraction = (t - a.t) / (b.t - a.t || 1);
-        return {
-          t,
-          y: a.y + (b.y - a.y) * fraction,
-          v: a.v + (b.v - a.v) * fraction
-        };
+        const state = { t };
+        Object.keys(a).forEach(key => {
+          if (key === "t") return;
+          if (typeof a[key] === "number" && typeof b[key] === "number") {
+            state[key] = a[key] + (b[key] - a[key]) * fraction;
+          }
+        });
+        return state;
       }
     }
     return points[points.length - 1];
@@ -2212,6 +4604,16 @@
       const inductor = model.hasL ? 0.5 * model.circuitL * point.v * point.v : 0;
       const capacitor = model.hasC ? point.y * point.y / (2 * model.circuitC) : 0;
       return { kinetic: inductor, potential: capacitor, total: inductor + capacitor };
+    }
+
+    if (model.mode === "particle2d" || model.mode === "coupled") {
+      const specs = energyComponentSpecs(model);
+      const kinetic = specs
+        .filter(spec => spec.key.startsWith("kinetic"))
+        .reduce((sum, spec) => sum + spec.value(model, point), 0);
+      const totalSpec = specs.find(spec => spec.key === "total");
+      const total = totalSpec ? totalSpec.value(model, point) : kinetic;
+      return { kinetic, potential: total - kinetic, total };
     }
 
     if (model.mode === "planar" && model.derivative) {
@@ -2240,7 +4642,7 @@
     if (document.activeElement !== slider || isPlaying) {
       slider.value = String(sliderValue);
     }
-    label.textContent = `t=${formatHudNumber(t)}`;
+    label.textContent = `t=${formatTimeValue(t)}`;
   }
 
   function updatePlotCursors(t, state, force = false) {
@@ -2248,7 +4650,22 @@
     const now = performance.now();
     if (!force && now - lastPlotCursorUpdate < 80) return;
     lastPlotCursorUpdate = now;
+    if (currentModel.analysisMode === "resonance") {
+      updateResonanceCursors(t, state);
+      return;
+    }
+    if (currentModel.mode === "particle2d") {
+      updateParticleCursors(t, state);
+      return;
+    }
+    if (currentModel.mode === "coupled") {
+      updateCoupledCursors(t, state);
+      return;
+    }
     const history = getHistoryUntil(t);
+    const compareHistory = currentCompareResult && currentCompareModel
+      ? getHistoryUntil(t, currentCompareResult, currentCompareModel)
+      : null;
     const timeShape = timeCursorShape(t);
     const timeAnnotation = timeCursorAnnotation(t);
     relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
@@ -2265,24 +4682,179 @@
       x: [[state.y]],
       y: [[state.v]]
     }, [2]);
+    if (compareHistory && currentCompareResult) {
+      const compareState = interpolateState(currentCompareResult.points, t);
+      restyleIfReady("physicsTimePlot", {
+        x: [compareHistory.t, compareHistory.t],
+        y: [compareHistory.y, compareHistory.v]
+      }, [6, 7]);
+      restyleIfReady("physicsPhasePlot", {
+        x: [compareHistory.y],
+        y: [compareHistory.v]
+      }, [4]);
+      restyleIfReady("physicsPhasePlot", {
+        x: [[compareState.y]],
+        y: [[compareState.v]]
+      }, [5]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [compareHistory.t],
+        y: [compareHistory.total]
+      }, [7]);
+    }
     restyleIfReady("physicsEnergyPlot", {
       x: [history.t, history.t, history.t],
       y: [history.kinetic, history.potential, history.total]
     }, [3, 4, 5]);
   }
 
-  function getHistoryUntil(t) {
-    const points = currentResult?.points || [];
+  function updateResonanceCursors(t, state) {
+    const compareState = currentCompareResult ? interpolateState(currentCompareResult.points, t) : null;
+    const history = getHistoryUntil(t, currentResult, currentModel);
+    const compareHistory = currentCompareResult && currentCompareModel
+      ? getHistoryUntil(t, currentCompareResult, currentCompareModel)
+      : null;
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsPhasePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsPhasePlot", {
+      x: [history.t],
+      y: [history.y]
+    }, [1]);
+    if (compareHistory) {
+      restyleIfReady("physicsPhasePlot", {
+        x: [compareHistory.t],
+        y: [compareHistory.y]
+      }, [3]);
+    }
+    restyleIfReady("physicsEnergyPlot", {
+      x: [history.y],
+      y: [history.v]
+    }, [1]);
+    restyleIfReady("physicsEnergyPlot", {
+      x: [[state.y]],
+      y: [[state.v]]
+    }, [2]);
+    if (compareHistory && compareState) {
+      restyleIfReady("physicsEnergyPlot", {
+        x: [compareHistory.y],
+        y: [compareHistory.v]
+      }, [4]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [[compareState.y]],
+        y: [[compareState.v]]
+      }, [5]);
+    }
+  }
+
+  function updateParticleCursors(t, state) {
+    const history = getHistoryUntil(t);
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsPhasePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsTimePlot", {
+      x: [history.t, history.t],
+      y: [history.vx, history.vy]
+    }, [2, 3]);
+    restyleIfReady("physicsPhasePlot", {
+      x: [history.t, history.t],
+      y: [history.x, history.yPos]
+    }, [2, 3]);
+    if ((currentModel.phaseProjection || defaultPhaseProjection(currentModel.type)) === "particleCompare") {
+      restyleIfReady("physicsEnergyPlot", {
+        x: [history.x, history.yPos],
+        y: [history.vx, history.vy]
+      }, [2, 3]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [[state.x], [state.yPos]],
+        y: [[state.vx], [state.vy]]
+      }, [4, 5]);
+    } else {
+      const projection = projectionTrace(currentModel, history.points, currentModel.phaseProjection || defaultPhaseProjection(currentModel.type));
+      const currentProjection = projectionPoint(currentModel, state, currentModel.phaseProjection || defaultPhaseProjection(currentModel.type));
+      restyleIfReady("physicsEnergyPlot", {
+        x: [projection.x],
+        y: [projection.y]
+      }, [1]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [[currentProjection.x]],
+        y: [[currentProjection.y]]
+      }, [2]);
+    }
+    updateExtraEnergyCursor(t, history, currentModel);
+  }
+
+  function updateCoupledCursors(t, state) {
+    const history = getHistoryUntil(t);
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsTimePlot", {
+      x: [history.t, history.t],
+      y: [history.x1, history.x2]
+    }, [2, 3]);
+    relayoutIfReady("physicsPhasePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsPhasePlot", {
+      x: [history.t, history.t],
+      y: [history.v1, history.v2]
+    }, [2, 3]);
+    if ((currentModel.phaseProjection || "coupledBoth") === "coupledBoth") {
+      restyleIfReady("physicsEnergyPlot", {
+        x: [history.x1, history.x2],
+        y: [history.v1, history.v2]
+      }, [2, 3]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [[state.x1], [state.x2]],
+        y: [[state.v1], [state.v2]]
+      }, [4, 5]);
+    } else {
+      const projection = projectionTrace(currentModel, history.points, currentModel.phaseProjection);
+      const currentProjection = projectionPoint(currentModel, state, currentModel.phaseProjection);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [projection.x],
+        y: [projection.y]
+      }, [1]);
+      restyleIfReady("physicsEnergyPlot", {
+        x: [[currentProjection.x]],
+        y: [[currentProjection.y]]
+      }, [2]);
+    }
+    updateExtraEnergyCursor(t, history, currentModel);
+  }
+
+  function updateExtraEnergyCursor(t, history, model) {
+    const specs = energyComponentSpecs(model);
+    if (!specs.length) return;
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsExtraPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsExtraPlot", {
+      x: specs.map(() => history.t),
+      y: specs.map(spec => history.points.map(point => spec.value(model, point)))
+    }, specs.map((spec, index) => specs.length + index));
+  }
+
+  function getHistoryUntil(t, result = currentResult, model = currentModel) {
+    const points = result?.points || [];
     const state = interpolateState(points, t);
     const visiblePoints = points.filter(point => point.t <= t);
     if (!visiblePoints.length || visiblePoints[visiblePoints.length - 1].t < t) {
       visiblePoints.push(state);
     }
-    const metrics = visiblePoints.map(point => metricParts(currentModel, point));
+    const metrics = visiblePoints.map(point => metricParts(model, point));
     return {
+      points: visiblePoints,
       t: visiblePoints.map(point => point.t),
       y: visiblePoints.map(point => point.y),
       v: visiblePoints.map(point => point.v),
+      x: visiblePoints.map(point => point.x),
+      yPos: visiblePoints.map(point => point.yPos),
+      vx: visiblePoints.map(point => point.vx),
+      vy: visiblePoints.map(point => point.vy),
+      x1: visiblePoints.map(point => point.x1),
+      v1: visiblePoints.map(point => point.v1),
+      x2: visiblePoints.map(point => point.x2),
+      v2: visiblePoints.map(point => point.v2),
       kinetic: metrics.map(item => item.kinetic),
       potential: metrics.map(item => item.potential),
       total: metrics.map(item => item.total)
@@ -2307,7 +4879,7 @@
       y: 1,
       xref: "x",
       yref: "paper",
-      text: `t=${formatHudNumber(t)}`,
+      text: `t=${formatTimeValue(t)}`,
       showarrow: false,
       yanchor: "bottom",
       bgcolor: "rgba(255,255,255,0.88)",
@@ -2339,6 +4911,31 @@
     const span = Math.max(max - min, 1);
     const pad = span * 0.08;
     return [min - pad, max + pad];
+  }
+
+  function niceTicks(min, max, count) {
+    if (!isFinite(min) || !isFinite(max) || min === max) return [min || 0];
+    const span = Math.abs(max - min);
+    const rawStep = span / Math.max(count - 1, 1);
+    const power = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const normalized = rawStep / power;
+    const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    const step = niceNormalized * power;
+    const start = Math.ceil(min / step) * step;
+    const ticks = [];
+    for (let value = start; value <= max + step * 0.5; value += step) {
+      ticks.push(Math.abs(value) < step * 1e-9 ? 0 : value);
+      if (ticks.length > 12) break;
+    }
+    return ticks;
+  }
+
+  function formatAxisTick(value) {
+    if (!isFinite(value)) return "0";
+    const abs = Math.abs(value);
+    if (abs >= 1000 || (abs > 0 && abs < 0.01)) return value.toExponential(1);
+    if (abs >= 10) return String(Math.round(value * 10) / 10);
+    return String(Math.round(value * 100) / 100);
   }
 
   function resizeCanvasToDisplay() {
@@ -2373,6 +4970,11 @@
   function formatHudNumber(value) {
     if (!isFinite(value)) return "0";
     return String(Math.round(value * 100) / 100);
+  }
+
+  function formatTimeValue(value) {
+    if (!isFinite(value)) return "0.00";
+    return value.toFixed(2);
   }
 
   window.setupPhysicsLab = setupPhysicsLab;

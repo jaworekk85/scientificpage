@@ -1,177 +1,252 @@
-# Dynamical Systems and Physics Plan
+# Dynamical Systems and Physics Roadmap
 
-## Direction
+Status: 2026-06-11
 
-Keep the general numerical-method panels focused on explaining algorithms:
+This file is the current source of truth for the dynamical-systems and physics roadmap. Older notes from this file were consolidated here so we do not have several competing plans after editor restarts.
+
+## Current App Structure
+
+The app should keep two related but distinct teaching modes:
+
+- `Numerical Methods`: explains how numerical schemes work.
+- `Physics Lab`: shows concrete systems that use those schemes.
+
+The numerical-method panels should stay focused on algorithms:
 
 - First-order ODEs: `y' = f(t, y)`.
 - Second-order ODEs: `y'' = f(t, y, v)` with `v = y'`.
+- Step views and method-stage visualizations.
+- Method comparisons and error/energy behavior where useful.
 
-Use separate thematic panels for concrete, visual examples. This should make the app easier to use in YouTube explanations: the numerical-method panels teach the schemes, while the thematic panels show why those schemes matter.
+Physics examples should be grouped by topic rather than added as one long flat list.
 
-## Physics Panel
+## Implemented Physics Lab Examples
 
-Avoid planets and orbital mechanics here. Celestial mechanics should become its own dedicated panel later.
-
-Current implemented examples:
+Mechanical:
 
 - Harmonic/damped/driven oscillator.
-- Pendulum with optional damping and external force.
-- RLC circuit as an electrical oscillator.
-- Predator-prey / Lotka-Volterra as a first non-mechanical 2D system.
-- FitzHugh-Nagumo neuron as a simple excitable-system model.
+- Oscillator resonance scan with selectable drive frequencies.
+- Oscillator animation modes: spring block and parabolic potential well.
+- Pendulum with damping, external force, and linear-model comparison.
+- Projectile motion in uniform gravity.
+- Vertical bounce in uniform gravity, with drag and restitution.
+- Coupled oscillators.
 
-Suggested physics examples:
+Fields and circuits:
 
-- Harmonic oscillator
-  - Equation: `x'' = -omega^2*x`.
-  - Visuals: animated mass on a spring or moving point, `x(t)`, `v(t)`, phase plot `(x, v)`, kinetic/potential/total energy.
-  - Educational focus: compare Euler, Euler-Cromer, RK, Verlet, velocity Verlet; show energy drift or conservation.
+- Charged particle in uniform electric and magnetic fields.
+- RLC circuit with optional `R`, `L`, `C`, source voltage, and comparison case.
 
-- Damped oscillator
-  - Equation: `x'' = -omega^2*x - gamma*v`.
-  - Visuals: decaying oscillation, phase spiral, energy decay.
-  - Educational focus: damping, loss of energy, stability of methods.
+Biological / population:
 
-- Driven damped oscillator
-  - Equation: `x'' = -omega^2*x - gamma*v + A*cos(Omega*t)`.
-  - Visuals: driven motion, resonance, phase plot.
-  - Educational focus: forcing, resonance, transition to richer dynamics.
+- Lotka-Volterra predator-prey model.
+- FitzHugh-Nagumo neuron model.
 
-- Pendulum
-  - Equation: `theta'' = -(g/L)*sin(theta)`.
-  - Visuals: animated pendulum, `theta(t)`, `omega(t)`, phase plot, energy.
-  - Educational focus: nonlinear motion; compare with small-angle approximation `theta'' = -(g/L)*theta`.
+Shared physics features now present:
 
-- RLC circuit
-  - Equation form similar to a damped oscillator.
-  - Visuals: charge/current or voltage/current over time, energy exchange between capacitor and inductor, damping with resistance.
-  - Educational focus: mechanical-electrical analogy.
+- Method selector reused across systems.
+- Canvas animation.
+- Time plots.
+- Phase-projection selector for higher-dimensional systems.
+- Energy plots when physically meaningful.
+- Comparison mode for selected systems.
 
-- Predator-prey / Lotka-Volterra
-  - Equations: `s' = alpha*s - beta*s*w`, `w' = delta*s*w - gamma*w`.
-  - Visuals: changing sheep and wolf populations, population bars, time series, phase plot.
-  - Educational focus: feedback loops and oscillations without a spring.
-  - Numerical note: this is a 2D first-order system, so Euler/RK methods apply directly; Verlet-style choices in the shared UI should be explained as leapfrog/predictor-corrector analogs rather than literal mechanical Verlet.
+## UI Organization Target
 
-- FitzHugh-Nagumo neuron
-  - Equations: `u' = u - u^3/3 - w + I`, `w' = (u + a - b*w)/tau`.
-  - Visuals: stylized neuron, voltage/recovery meters, spike threshold, time series, phase plot.
-  - Educational focus: excitability and threshold-like behavior in a simple biological system.
-  - Numerical note: also a 2D first-order system; the method dropdown should remain active, but the interpretation of second-order-specific methods needs a short UI/status explanation.
+Short-term structure inside `Physics Lab`:
 
-## Non-Mechanical Dynamical Systems Panel
+- Mechanical
+  - oscillator
+  - pendulum
+  - projectile / vertical bounce
+  - coupled oscillators
+- Fields and circuits
+  - charged particle in `E + B`
+  - RLC circuit
+  - future dipole
+- Biological / population
+  - predator-prey
+  - FitzHugh-Nagumo neuron
+  - future Hodgkin-Huxley
 
-These examples should show that the same numerical-method ideas appear outside mechanics. Keep them visually concrete: reservoirs, circuits, populations, concentrations, and fields rather than abstract variables only.
+Current minimal UI step already done:
 
-Suggested examples:
+- The `system` dropdown is grouped with `optgroup` sections.
 
-- RC/RL/RLC circuits
-  - Equations: first-order charging/discharging for RC/RL; second-order oscillator for RLC.
-  - Visuals: capacitor filling, current arrows, voltage/current plots.
-  - Educational focus: time constants, damping, analogy between electrical and mechanical systems.
+Possible next UI cleanup:
 
-- SIR epidemic model
-  - Equations:
-    - `S' = -beta*S*I`
-    - `I' = beta*S*I - gamma*I`
-    - `R' = gamma*I`
-  - Visuals: three connected population tanks or bars, time series for susceptible/infected/recovered.
-  - Educational focus: coupled first-order systems, thresholds, peak infection, parameter sensitivity.
+- Replace the single flat system select with:
+  - `category` select or tabs,
+  - `system` select filtered by category,
+  - shared controls below.
+- Split `physics-lab.js` into smaller files once behavior stabilizes:
+  - `physics/models.js`
+  - `physics/solvers.js`
+  - `physics/plots.js`
+  - `physics/canvas.js`
+  - `physics/controls.js`
+- Keep `js/README.md` updated if files are moved.
 
-- Predator-prey / Lotka-Volterra
-  - Equations:
-    - `x' = alpha*x - beta*x*y`
-    - `y' = delta*x*y - gamma*y`
-  - Visuals: two population bars, phase plot cycles, time series.
-  - Educational focus: feedback loops, phase portraits, oscillations without springs.
+Do not add a new top-level panel for every single example. Add new top-level panels only when the teaching goal changes.
 
-- Chemical reaction kinetics
-  - Examples: simple reversible reaction, autocatalysis, Brusselator/Oregonator later.
-  - Visuals: concentrations as liquid levels/colors, reaction arrows, time series.
-  - Educational focus: rates, equilibrium, oscillating chemical reactions.
+## Planned Panels / Subpanels
 
-- Neuron model
-  - Candidate: FitzHugh-Nagumo as a simplified excitable system.
-  - Visuals: membrane voltage trace, recovery variable, phase plot, spike threshold marker.
-  - Educational focus: excitability, thresholds, fast/slow variables.
+### Rigid Body / Rotation
 
-- Simple climate / thermal model
-  - Equation: temperature balance with input, cooling, and feedback.
-  - Visuals: thermometer/tank, heating/cooling arrows, equilibrium marker.
-  - Educational focus: equilibrium, feedback, stability, response time.
+Goal: teach angular momentum, torque, and rotational dynamics with concrete animations.
 
-## Dynamical Systems / Chaos Panel
+Candidate examples:
 
-This should probably be separate from Physics. It can mix mechanical and non-mechanical examples, united by ideas like phase space, sensitivity to initial conditions, bifurcations, attractors, and stretch-and-fold behavior.
+- Rotating disk / wheel with angular momentum vector.
+- Conservation of angular momentum: changing moment of inertia changes angular speed.
+- Gyroscope and precession.
+- Rolling wheel, pulley, or spool converting translation and rotation.
+- Crank-slider mechanism converting rotational and translational motion.
 
-Suggested examples:
+Visual focus:
 
-- Logistic map
-  - Equation: `x_(n+1) = r*x_n*(1 - x_n)`.
-  - Visuals: cobweb animation, time series, bifurcation diagram.
-  - Educational focus: chaos without differential equations; period doubling; parameter-driven transition to chaos.
+- Vectors: angular velocity `omega`, angular momentum `L`, torque `tau`.
+- Energy split: translational, rotational, potential where applicable.
+- Clear axis and scale annotations.
 
-- Driven damped pendulum
-  - Equation: `theta'' + gamma*theta' + sin(theta) = A*cos(omega*t)`.
-  - Visuals: animated pendulum, `theta(t)`, phase plot, Poincare section, nearby initial conditions diverging.
-  - Educational focus: deterministic chaos in a physical system.
+Implementation note:
 
-- Double pendulum
-  - Visuals: animated double pendulum, two nearby starts diverging.
-  - Educational focus: sensitivity to initial conditions.
-  - Note: visually excellent but implementation is more involved; add later.
+- Start simple with planar rotation before 3D gyroscope rendering.
+- A 3D gyroscope may later deserve Three.js, but the first version can be 2D/2.5D.
 
-- Lorenz attractor
-  - Equations:
-    - `x' = sigma*(y - x)`
-    - `y' = x*(rho - z) - y`
-    - `z' = x*y - beta*z`
-  - Origin: simplified model of atmospheric convection.
-  - Variables roughly represent convection intensity and temperature differences in a simplified heated-fluid layer.
-  - Visuals: animated 3D trajectory or 2D projections, two nearby trajectories diverging.
-  - Educational focus: deterministic equations can produce unpredictable-looking behavior; sensitivity to initial conditions.
+### Electric Dipoles
 
-- Rossler attractor
-  - Visuals: spiral-like chaotic attractor, animated point.
-  - Educational focus: another continuous chaotic attractor, often visually simpler than Lorenz.
+Goal: show rotational dynamics in a field without starting from full electrodynamics.
 
-- Duffing oscillator
-  - Equation: `x'' + delta*x' + alpha*x + beta*x^3 = gamma*cos(omega*t)`.
-  - Visuals: particle in a nonlinear or double-well potential, phase plot, Poincare section.
-  - Educational focus: nonlinear forced oscillator and chaos.
+Candidate example:
 
-- Henon map
-  - Equations:
-    - `x_(n+1) = 1 - a*x_n^2 + y_n`
-    - `y_(n+1) = b*x_n`
-  - Visuals: points accumulating on a fractal attractor.
-  - Educational focus: discrete 2D chaos and strange attractors.
+- Rigid electric dipole in a uniform electric field.
 
-- Baker's map / tent map
-  - Visuals: stretching and folding an interval or square.
-  - Educational focus: geometric mechanism of chaos: stretch, fold, repeat.
+Equations / physics:
 
-## Suggested Build Order
+- Torque: `tau = p x E`.
+- Potential energy: `U = -p . E`.
+- Optional damping.
 
-1. Physics: harmonic oscillator.
-2. Physics: damped and driven oscillator.
-3. Physics: pendulum.
-4. Physics: RLC circuit.
-5. Non-mechanical systems: RC circuit or SIR model.
-6. Non-mechanical systems: predator-prey model.
-7. Chaos: logistic map with cobweb and bifurcation diagram.
-8. Chaos: driven damped pendulum with Poincare section.
-9. Chaos: Lorenz attractor.
-10. Chaos: Duffing oscillator.
-11. Chaos: Henon or Baker map.
+Visual focus:
 
-## UX Notes
+- Dipole rod with charges `+q` and `-q`.
+- Field arrows.
+- Torque arrow.
+- Energy and angle over time.
 
-- Prefer concrete animations over abstract controls.
+Possible extension:
+
+- Magnetic dipole in magnetic field, but only after the electric case is clear.
+
+### Chaos Lab
+
+This should be separate from the basic `Physics Lab` flow. It can mix mechanical, biological, and discrete examples because the common theme is chaos, not domain.
+
+Core examples:
+
+- Double pendulum.
+- Lorenz attractor.
+- Driven damped pendulum.
+- Duffing oscillator.
+- Logistic map with cobweb and bifurcation diagram.
+- Rossler attractor.
+- Henon map.
+- Baker/tent map for stretch-and-fold intuition.
+
+Educational focus:
+
+- Sensitivity to initial conditions.
+- Phase space.
+- Attractors.
+- Bifurcations.
+- Poincare sections.
+- Stretching and folding.
+
+Lorenz visualization:
+
+- 3D trajectory or selectable 2D projections.
+- Two nearby initial conditions shown in different colors.
+- Treat physical interpretation carefully: Lorenz is a simplified convection model, not a literal weather simulator.
+
+Logistic map placement:
+
+- It is not an ODE, but it belongs in `Chaos Lab`.
+- Justification: deterministic chaos does not require differential equations; maps are the simplest way to show period doubling and bifurcation diagrams.
+
+### Phase Flow / Liouville Lab
+
+Goal: compare how a small bubble of initial states evolves in regular, dissipative, and chaotic systems.
+
+Candidate systems:
+
+- Harmonic oscillator.
+- Pendulum / small-angle pendulum.
+- Damped oscillator.
+- Driven chaotic pendulum.
+- Double pendulum.
+- Lorenz attractor.
+
+Core visual:
+
+- Start with a small cloud/bubble of nearby initial conditions.
+- Animate its evolution in a chosen phase projection.
+- Optionally show area/volume estimate over time.
+
+Important concept:
+
+- Liouville volume conservation applies to Hamiltonian flow, not arbitrary damped systems.
+- In 2D autonomous continuous systems there is no true chaos. For chaotic continuous systems we need at least 3D state space, then visualize 2D projections.
+
+Suggested comparisons:
+
+- Hamiltonian oscillator: bubble rotates/deforms without area loss.
+- Damped oscillator: bubble contracts.
+- Chaotic system: bubble stretches, folds, and separates rapidly in projections.
+
+### Celestial Mechanics
+
+Keep this separate from the current `Physics Lab`.
+
+Reasons:
+
+- It deserves its own visual quality and interaction model.
+- It will likely need mission-planning ideas, orbital maneuvers, gravity assists, and multi-body simulations.
+- Avoid mixing quick educational oscillators with a serious orbital-mechanics sandbox.
+
+Candidate examples later:
+
+- Two-body orbit.
+- Three-body and N-body systems.
+- Energy and angular momentum plots.
+- Hohmann transfer.
+- Gravity assist.
+- Rocket burns and mission planning.
+
+## Build Order Recommendation
+
+1. Finish structural cleanup of `Physics Lab`.
+2. Add `Rigid Body / Rotation` as the next new physics domain.
+3. Add electric dipole as a compact field/rotation bridge.
+4. Start `Chaos Lab` with double pendulum and Lorenz.
+5. Add logistic map and bifurcation diagrams.
+6. Add `Phase Flow / Liouville Lab`.
+7. Save celestial mechanics for a dedicated, more polished panel.
+
+## UX Principles
+
+- Prefer concrete animations over abstract variables.
 - Keep equations visible but not dominant.
+- Show scales on canvas whenever motion may look slow because the view is zoomed out.
+- Avoid redundant plots. If `x vs y` is available as a phase projection, do not also show it as a separate trajectory plot unless there is a specific teaching reason.
 - Use phase plots when they clarify state, not as decorative charts.
-- In animations, make physical coupling visually explicit. A force source should visibly touch or connect to the object it affects; otherwise beginners may read it as a separate decoration.
-- For touch devices, avoid relying only on hover. Use pinned step/selected state patterns.
-- When several linked views exist, keep them physically close on screen or provide tabs/switchers.
-- Big overview plots can be optional; local step views should stay compact and immediately adjacent to the main interaction.
+- For touch devices, avoid hover-only explanations.
+- Keep linked views close together or use explicit selectors.
+- Add controls only when they support a clear teaching question.
+
+## Documentation Hygiene
+
+- Keep this file as the main roadmap.
+- Keep `js/README.md` for code-structure notes only.
+- If a planned idea becomes obsolete, move it to a short `Superseded` note in this file instead of creating another plan file.
+- If a feature is implemented, move it from `Planned` to `Implemented`.
