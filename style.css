@@ -81,6 +81,10 @@ header h1 {
   display: block;
 }
 
+.hidden {
+  display: none !important;
+}
+
 #togglePanel {
   display: none;
   margin-bottom: 12px;
@@ -438,14 +442,34 @@ input[type="range"] {
 
 .physics-controls-panel [data-physics-param="particleInitial"],
 .physics-controls-panel [data-physics-param="coupled"],
-.physics-controls-panel [data-physics-param="coupledInitial"] {
+.physics-controls-panel [data-physics-param="coupledInitial"],
+.physics-controls-panel [data-physics-param="rotation"],
+.physics-controls-panel [data-physics-param="rotationInitial"],
+.physics-controls-panel [data-physics-param="rolling"],
+.physics-controls-panel [data-physics-param="spool"],
+.physics-controls-panel [data-physics-param="wilberforce"],
+.physics-controls-panel [data-physics-param="wilberforceInitial"],
+.physics-controls-panel [data-physics-param="gyro"],
+.physics-controls-panel [data-physics-param="gyroInitial"],
+.physics-controls-panel [data-physics-param="rigidDipole"],
+.physics-controls-panel [data-physics-param="rigidDipoleInitial"] {
   flex-wrap: wrap;
   gap: 8px;
 }
 
 .physics-controls-panel [data-physics-param="particleInitial"] input,
 .physics-controls-panel [data-physics-param="coupled"] input,
-.physics-controls-panel [data-physics-param="coupledInitial"] input {
+.physics-controls-panel [data-physics-param="coupledInitial"] input,
+.physics-controls-panel [data-physics-param="rotation"] input,
+.physics-controls-panel [data-physics-param="rotationInitial"] input,
+.physics-controls-panel [data-physics-param="rolling"] input,
+.physics-controls-panel [data-physics-param="spool"] input,
+.physics-controls-panel [data-physics-param="wilberforce"] input,
+.physics-controls-panel [data-physics-param="wilberforceInitial"] input,
+.physics-controls-panel [data-physics-param="gyro"] input,
+.physics-controls-panel [data-physics-param="gyroInitial"] input,
+.physics-controls-panel [data-physics-param="rigidDipole"] input,
+.physics-controls-panel [data-physics-param="rigidDipoleInitial"] input {
   width: 66px;
 }
 
@@ -537,7 +561,8 @@ input[type="range"] {
   min-width: 0;
 }
 
-.physics-canvas {
+.physics-canvas,
+.chaos-canvas {
   display: block;
   width: 100%;
   height: 300px;
@@ -546,7 +571,12 @@ input[type="range"] {
   background: #ffffff;
 }
 
-.physics-animation-controls {
+.chaos-canvas {
+  height: 340px;
+}
+
+.physics-animation-controls,
+.chaos-animation-controls {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
@@ -554,7 +584,8 @@ input[type="range"] {
   margin: 10px 0 12px;
 }
 
-.physics-animation-controls button {
+.physics-animation-controls button,
+.chaos-animation-controls button {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -564,7 +595,8 @@ input[type="range"] {
   cursor: pointer;
 }
 
-.physics-animation-controls span {
+.physics-animation-controls span,
+.chaos-animation-controls span {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
@@ -573,10 +605,209 @@ input[type="range"] {
   font-variant-numeric: tabular-nums;
 }
 
-.physics-plot-grid {
+.physics-plot-grid,
+.chaos-plot-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+
+.chaos-layout {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.chaos-controls-panel h2 {
+  margin: 0 0 10px;
+}
+
+.chaos-controls-panel > label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.chaos-controls-panel .inline-inputs {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chaos-controls-panel .inline-inputs input {
+  width: 72px;
+}
+
+.chaos-controls-panel .inline-inputs select {
+  min-width: 120px;
+}
+
+.chaos-output-panel {
+  min-width: 0;
+}
+
+#chaosRunBtn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.celestial-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.celestial-controls-panel h2 {
+  margin: 0 0 10px;
+}
+
+.celestial-controls-panel > label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.celestial-controls-panel select {
+  width: 100%;
+}
+
+.celestial-controls-panel .inline-inputs {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.celestial-controls-panel .inline-inputs input {
+  width: 78px;
+}
+
+.celestial-button-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.celestial-button-row button {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.celestial-button-row button:hover {
+  background: #f1f5f9;
+}
+
+.celestial-body-editor {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.celestial-controls-panel .celestial-body-editor input {
+  width: 72px;
+}
+
+.celestial-output-panel {
+  min-width: 0;
+}
+
+.celestial-stage {
+  position: relative;
+  min-height: 380px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.celestial-stage canvas {
+  display: block;
+  width: 100%;
+  height: 430px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.celestial-stage canvas:active {
+  cursor: grabbing;
+}
+
+.celestial-animation-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 12px;
+}
+
+.celestial-animation-controls button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.celestial-animation-controls span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 58px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.celestial-plot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.celestial-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: #334155;
+  font-size: 13px;
+}
+
+.celestial-metrics span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.celestial-metrics em {
+  color: #0f172a;
+  font-style: normal;
 }
 
 .methods-layout {
@@ -759,6 +990,14 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
+  .chaos-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .celestial-layout {
+    grid-template-columns: 1fr;
+  }
+
   .controls-panel {
     width: 100%;
     min-width: 0;
@@ -774,8 +1013,21 @@ input[type="range"] {
     height: 34vh;
   }
 
-  .physics-canvas {
+  .physics-canvas,
+  .chaos-canvas {
     height: 260px;
+  }
+
+  .celestial-stage {
+    min-height: 300px;
+  }
+
+  .celestial-stage canvas {
+    height: 320px;
+  }
+
+  .celestial-plot-grid {
+    grid-template-columns: 1fr;
   }
 
   .step-zoom-grid {
@@ -902,11 +1154,23 @@ input[type="range"] {
     width: 100px;
   }
 
+  .celestial-controls-panel .inline-inputs input {
+    width: 100px;
+  }
+
+  .celestial-controls-panel .celestial-body-editor input {
+    width: 100px;
+  }
+
   .methods-plot {
     min-height: 280px;
   }
 
   .physics-animation-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .celestial-animation-controls {
     grid-template-columns: 1fr;
   }
 

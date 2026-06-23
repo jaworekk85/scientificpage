@@ -9,6 +9,8 @@
 <script src="https://cdn.jsdelivr.net/npm/algebrite/dist/algebrite.bundle-for-browser.js"></script>
 <script src="https://unpkg.com/mathjs@7.0.0/dist/math.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 window.MathJax = {
   tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]] },
@@ -27,7 +29,8 @@ window.MathJax = {
 <nav class="tabs">
   <button data-tab="plotter" class="active">Plotter</button>
   <button data-tab="methods">Methods</button>
-  <button data-tab="physics">Physics</button>
+  <button data-tab="physics">Dynamics</button>
+  <button data-tab="celestial">Celestial Mechanics</button>
 </nav>
 
 <div class="view active" id="plotter">
@@ -255,27 +258,16 @@ window.MathJax = {
 <div class="view" id="physics">
 <div class="physics-layout">
   <div class="panel physics-controls-panel">
-    <h2>Physics</h2>
+    <h2>Dynamics</h2>
+
+    <label>category</label>
+    <select id="physicsCategory"></select>
 
     <label>system</label>
     <select id="physicsSystem">
-      <optgroup label="Mechanical">
-        <option value="oscillator">oscillator</option>
-        <option value="pendulum">pendulum</option>
-        <option value="projectile">projectile motion</option>
-        <option value="verticalBounce">vertical bounce</option>
-        <option value="coupledOscillators">coupled oscillators</option>
-      </optgroup>
-      <optgroup label="Fields & circuits">
-        <option value="chargedParticle">charged particle: E + B fields</option>
-        <option value="rlc">RLC circuit</option>
-      </optgroup>
-      <optgroup label="Biological / population">
-        <option value="predatorPrey">predator-prey</option>
-        <option value="neuron">neuron</option>
-      </optgroup>
     </select>
 
+    <div id="physicsControlsBody">
     <div class="physics-control-block" data-physics-param="secondMethod">
       <label>method</label>
       <select id="physicsMethod"></select>
@@ -407,6 +399,17 @@ window.MathJax = {
       <label>Bz <input id="physicsMagneticB" type="number" step="0.1" value="1"></label>
     </div>
 
+    <div class="row inline-inputs" data-physics-param="rigidDipole">
+      <label>d <input id="physicsDipoleDistance" type="number" step="0.1" value="1"></label>
+      <label>I <input id="physicsDipoleInertia" type="number" step="0.05" value="0.12"></label>
+      <label>&gamma;<sub>rot</sub> <input id="physicsDipoleDamping" type="number" step="0.01" value="0.04"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rigidDipoleInitial">
+      <label>&theta;<sub>0</sub> [deg] <input id="physicsDipoleTheta0" type="number" step="1" value="80"></label>
+      <label>&omega;<sub>0</sub> <input id="physicsDipoleOmega0" type="number" step="0.1" value="0"></label>
+    </div>
+
     <div class="row inline-inputs" data-physics-param="coupled">
       <label>&omega;0 <input id="physicsCoupledOmega" type="number" step="0.1" value="1"></label>
       <label>&kappa; <input id="physicsCoupledKappa" type="number" step="0.1" value="0.35"></label>
@@ -418,6 +421,67 @@ window.MathJax = {
       <label>v1(0) <input id="physicsCoupledV1" type="number" step="0.1" value="0"></label>
       <label>x2(0) <input id="physicsCoupledX2" type="number" step="0.1" value="0"></label>
       <label>v2(0) <input id="physicsCoupledV2" type="number" step="0.1" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rotation">
+      <label>I0 <input id="physicsRotationI0" type="number" step="0.1" value="3"></label>
+      <label>I1 <input id="physicsRotationI1" type="number" step="0.1" value="1"></label>
+      <label>&tau; <input id="physicsRotationTau" type="number" step="0.05" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rotationInitial">
+      <label>&theta;(0) <input id="physicsRotationTheta0" type="number" step="0.1" value="0"></label>
+      <label>&omega;(0) <input id="physicsRotationOmega0" type="number" step="0.1" value="2"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="rolling">
+      <label>&alpha; [deg] <input id="physicsRollingAngle" type="number" step="1" value="18"></label>
+      <label>L <input id="physicsRollingLength" type="number" step="0.5" value="8"></label>
+      <label>R <input id="physicsRollingRadius" type="number" step="0.05" value="0.35"></label>
+      <label>g <input id="physicsRollingG" type="number" step="0.1" value="9.81"></label>
+      <label>drag <input id="physicsRollingDrag" type="number" step="0.01" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="spool">
+      <label>m <input id="physicsSpoolMass" type="number" step="0.1" value="1"></label>
+      <label>R <input id="physicsSpoolRadius" type="number" step="0.05" value="0.55"></label>
+      <label>r <input id="physicsSpoolAxleRadius" type="number" step="0.05" value="0.22"></label>
+      <label>k <input id="physicsSpoolInertiaK" type="number" step="0.05" value="0.55"></label>
+      <label>F <input id="physicsSpoolForce" type="number" step="0.1" value="2"></label>
+      <label>&alpha; [deg] <input id="physicsSpoolPullAngle" type="number" step="1" value="75"></label>
+      <label>drag <input id="physicsSpoolDrag" type="number" step="0.01" value="0.02"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="wilberforce">
+      <label>m <input id="physicsWilberforceMass" type="number" step="0.1" value="1"></label>
+      <label>I <input id="physicsWilberforceI" type="number" step="0.05" value="0.2"></label>
+      <label>kz <input id="physicsWilberforceKz" type="number" step="0.1" value="4"></label>
+      <label>k&theta; <input id="physicsWilberforceKt" type="number" step="0.1" value="0.8"></label>
+      <label>&epsilon; <input id="physicsWilberforceCoupling" type="number" step="0.02" value="0.18"></label>
+      <label>&gamma; <input id="physicsWilberforceDamping" type="number" step="0.01" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="wilberforceInitial">
+      <label>z(0) <input id="physicsWilberforceZ0" type="number" step="0.1" value="1"></label>
+      <label>vz(0) <input id="physicsWilberforceVz0" type="number" step="0.1" value="0"></label>
+      <label>&theta;(0) <input id="physicsWilberforceTheta0" type="number" step="0.1" value="0"></label>
+      <label>&omega;(0) <input id="physicsWilberforceOmega0" type="number" step="0.1" value="0"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="gyro">
+      <label>m <input id="physicsGyroMass" type="number" step="0.1" value="1"></label>
+      <label>d <input id="physicsGyroD" type="number" step="0.05" value="0.9"></label>
+      <label>I<sub>1</sub> <input id="physicsGyroI1" type="number" step="0.05" value="0.45"></label>
+      <label>I<sub>3</sub> <input id="physicsGyroI" type="number" step="0.05" value="0.2"></label>
+      <label>&omega;<sub>3</sub> <input id="physicsGyroSpin" type="number" step="1" value="35"></label>
+      <label>&theta;<sub>0</sub> [deg] <input id="physicsGyroTilt" type="number" step="1" value="35"></label>
+      <label>g <input id="physicsGyroG" type="number" step="0.1" value="9.81"></label>
+    </div>
+
+    <div class="row inline-inputs" data-physics-param="gyroInitial">
+      <label>&phi;<sub>0</sub> <input id="physicsGyroPhi0" type="number" step="0.1" value="0"></label>
+      <label>&theta;'<sub>0</sub> <input id="physicsGyroThetaDot0" type="number" step="0.05" value="0"></label>
+      <label>&phi;'<sub>0</sub> <input id="physicsGyroPhiDot0" type="number" step="0.05" value="1.1"></label>
     </div>
 
     <div class="row inline-inputs" data-physics-param="rlc">
@@ -498,9 +562,184 @@ window.MathJax = {
     </div>
 
     <div id="physicsStatus" class="status"></div>
+    </div>
+
+    <div id="chaosControlsBody" class="chaos-controls-panel hidden">
+      <div id="chaosEquation" class="equation-display"></div>
+
+      <div class="row inline-inputs" data-chaos-param="flow">
+        <label>t0 <input id="chaosT0" type="number" step="0.1" value="0"></label>
+        <label>t1 <input id="chaosT1" type="number" step="0.5" value="35"></label>
+        <label>h <input id="chaosH" type="number" step="0.001" value="0.01"></label>
+      </div>
+
+      <div class="row inline-inputs" data-chaos-param="method">
+        <label>method
+          <select id="chaosMethod">
+            <option value="rk4">RK4</option>
+            <option value="heun">Heun RK2</option>
+            <option value="midpoint">midpoint RK2</option>
+            <option value="euler">Euler</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row inline-inputs" data-chaos-param="lorenz">
+        <label>&sigma; <input id="chaosSigma" type="number" step="0.1" value="10"></label>
+        <label>&rho; <input id="chaosRho" type="number" step="0.1" value="28"></label>
+        <label>&beta; <input id="chaosBeta" type="number" step="0.01" value="2.6667"></label>
+      </div>
+
+      <div class="row inline-inputs" data-chaos-param="initial">
+        <label>x0 <input id="chaosX0" type="number" step="0.1" value="1"></label>
+        <label>y0 <input id="chaosY0" type="number" step="0.1" value="1"></label>
+        <label>z0 <input id="chaosZ0" type="number" step="0.1" value="1"></label>
+        <label>&delta; <input id="chaosDelta" type="number" step="0.0001" value="0.0001"></label>
+      </div>
+
+      <div class="row inline-inputs" data-chaos-param="lorenz">
+        <label>phase projection
+          <select id="chaosLorenzPhaseProjection">
+            <option value="x-z">x vs z</option>
+            <option value="x-y">x vs y</option>
+            <option value="y-z">y vs z</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="logisticMode">
+        <label>bifurcation
+          <select id="chaosLogisticBifurcationMode">
+            <option value="build">build-up</option>
+            <option value="complete">complete</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="logisticBase">
+        <label>x0 <input id="chaosLogisticX0" type="number" step="0.01" value="0.21"></label>
+        <label>N <input id="chaosLogisticIterations" type="number" step="10" value="180"></label>
+        <label>discard <input id="chaosLogisticDiscard" type="number" step="10" value="80"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="logisticSelected">
+        <label>selected r <input id="chaosLogisticR" type="number" step="0.01" value="3.72"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="logisticRange">
+        <label>r min <input id="chaosLogisticRMin" type="number" step="0.01" value="2.8"></label>
+        <label>r max <input id="chaosLogisticRMax" type="number" step="0.01" value="4"></label>
+        <label>samples <input id="chaosLogisticSamples" type="number" step="20" value="260"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="doublePendulum">
+        <label>l1 <input id="chaosDoubleL1" type="number" step="0.1" value="1"></label>
+        <label>l2 <input id="chaosDoubleL2" type="number" step="0.1" value="1"></label>
+        <label>m1 <input id="chaosDoubleM1" type="number" step="0.1" value="1"></label>
+        <label>m2 <input id="chaosDoubleM2" type="number" step="0.1" value="1"></label>
+        <label>g <input id="chaosDoubleG" type="number" step="0.1" value="9.81"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="doublePendulum">
+        <label>&theta;1 <input id="chaosDoubleTheta1" type="number" step="1" value="120"></label>
+        <label>&theta;2 <input id="chaosDoubleTheta2" type="number" step="1" value="-10"></label>
+        <label>&omega;1 <input id="chaosDoubleOmega1" type="number" step="0.1" value="0"></label>
+        <label>&omega;2 <input id="chaosDoubleOmega2" type="number" step="0.1" value="0"></label>
+        <label>&delta; <input id="chaosDoubleDelta" type="number" step="0.0001" value="0.0001"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="doublePendulum">
+        <label>phase projection
+          <select id="chaosDoublePhaseProjection">
+            <option value="theta1-omega1">&theta;1 vs &omega;1</option>
+            <option value="theta2-omega2">&theta;2 vs &omega;2</option>
+            <option value="theta1-theta2">&theta;1 vs &theta;2</option>
+            <option value="theta1-omega2">&theta;1 vs &omega;2</option>
+            <option value="theta2-omega1">&theta;2 vs &omega;1</option>
+            <option value="omega1-omega2">&omega;1 vs &omega;2</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="duffing">
+        <label>preset
+          <select id="chaosDuffingPreset">
+            <option value="chaotic">chaotic double-well</option>
+            <option value="regular">regular double-well</option>
+            <option value="custom">custom</option>
+          </select>
+        </label>
+        <label>&delta; <input id="chaosDuffingDelta" type="number" step="0.01" value="0.2"></label>
+        <label>&alpha; <input id="chaosDuffingAlpha" type="number" step="0.1" value="-1"></label>
+        <label>&beta; <input id="chaosDuffingBeta" type="number" step="0.1" value="1"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="duffing">
+        <label><span id="chaosDuffingDriveAmpLabel">F</span> <input id="chaosDuffingDriveAmp" type="number" step="0.02" value="0.3"></label>
+        <label>&Omega; <input id="chaosDuffingDriveOmega" type="number" step="0.05" value="1.2"></label>
+        <label>q0 <input id="chaosDuffingQ0" type="number" step="0.1" value="0.2"></label>
+        <label>p0 <input id="chaosDuffingP0" type="number" step="0.1" value="0"></label>
+        <label>&epsilon; <input id="chaosDuffingDelta0" type="number" step="0.0001" value="0.0001"></label>
+      </div>
+      <div class="row inline-inputs hidden" data-chaos-param="liouville">
+        <label>flow
+          <select id="chaosLiouvilleFlow">
+            <option value="hamiltonian">Hamiltonian oscillator</option>
+            <option value="damped">damped oscillator</option>
+            <option value="driven">driven oscillator</option>
+            <option value="duffing">Duffing chaotic</option>
+            <option value="doublePendulum">double pendulum</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouvilleOscillator">
+        <label>&omega; <input id="chaosLiouvilleOmega" type="number" step="0.1" value="1"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouvilleDamped">
+        <label>&gamma; <input id="chaosLiouvilleGamma" type="number" step="0.02" value="0.18"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouvilleDriven">
+        <label>F <input id="chaosLiouvilleDriveAmp" type="number" step="0.1" value="0.7"></label>
+        <label>&Omega; <input id="chaosLiouvilleDriveOmega" type="number" step="0.1" value="1.35"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouvilleDuffing">
+        <label>&delta; <input id="chaosLiouvilleDuffingDelta" type="number" step="0.01" value="0.2"></label>
+        <label>F <input id="chaosLiouvilleDuffingDriveAmp" type="number" step="0.02" value="0.3"></label>
+        <label>&Omega; <input id="chaosLiouvilleDuffingDriveOmega" type="number" step="0.05" value="1.2"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouvilleDouble">
+        <label>projection
+          <select id="chaosLiouvilleDoubleProjection">
+            <option value="theta1-omega1">&theta;1 vs &omega;1</option>
+            <option value="theta2-omega2">&theta;2 vs &omega;2</option>
+            <option value="theta1-theta2">&theta;1 vs &theta;2</option>
+            <option value="omega1-omega2">&omega;1 vs &omega;2</option>
+          </select>
+        </label>
+        <label>&theta;1 [deg] <input id="chaosLiouvilleDoubleTheta1" type="number" step="1" value="120"></label>
+        <label>&theta;2 [deg] <input id="chaosLiouvilleDoubleTheta2" type="number" step="1" value="-10"></label>
+      </div>
+
+      <div class="row inline-inputs hidden" data-chaos-param="liouville">
+        <label>cloud radius <input id="chaosLiouvilleRadius" type="number" step="0.02" value="0.32"></label>
+        <label>mesh points <input id="chaosLiouvillePoints" type="number" step="100" min="24" max="3000" value="420"></label>
+      </div>
+
+      <div class="row inline-inputs">
+        <label>animation speed <input id="chaosSpeed" type="number" step="0.1" value="1"></label>
+      </div>
+
+      <div id="chaosStatus" class="status"></div>
+    </div>
   </div>
 
   <div class="panel physics-output-panel">
+    <div id="physicsOutputBody">
     <canvas id="physicsCanvas" class="physics-canvas" width="900" height="360"></canvas>
     <div class="physics-animation-controls">
       <button id="physicsPlayBtn" type="button">Play</button>
@@ -512,6 +751,111 @@ window.MathJax = {
       <div id="physicsPhasePlot" class="methods-plot"></div>
       <div id="physicsEnergyPlot" class="methods-plot"></div>
       <div id="physicsExtraPlot" class="methods-plot hidden"></div>
+    </div>
+    </div>
+    <div id="chaosOutputBody" class="hidden">
+    <canvas id="chaosCanvas" class="chaos-canvas" width="900" height="380"></canvas>
+    <div class="chaos-animation-controls">
+      <button id="chaosPlayBtn" type="button">Play</button>
+      <input id="chaosTimeSlider" type="range" min="0" max="1" step="0.001" value="0">
+      <span id="chaosTimeLabel">t=0</span>
+    </div>
+    <div class="chaos-plot-grid">
+      <div id="chaosPhasePlot" class="methods-plot"></div>
+      <div id="chaosTimePlot" class="methods-plot"></div>
+      <div id="chaosSeparationPlot" class="methods-plot"></div>
+      <div id="chaosEnergyPlot" class="methods-plot hidden"></div>
+    </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="view" id="celestial">
+<div class="celestial-layout">
+  <div class="panel celestial-controls-panel">
+    <h2>Celestial Mechanics</h2>
+
+    <label>scenario</label>
+    <select id="celestialScenario">
+      <option value="twoBody">Two-body Kepler problem</option>
+      <option value="binary">Binary-star preset</option>
+      <option value="circumbinary">Circumbinary planet</option>
+      <option value="threeBody">Three-body chaos</option>
+      <option value="solarSystem">Solar System preset</option>
+      <option value="transfer">Hohmann transfer</option>
+      <option value="lagrange">Lagrange points</option>
+    </select>
+
+    <label>integrator</label>
+    <select id="celestialMethod">
+      <option value="verlet">velocity Verlet / leapfrog</option>
+      <option value="rk4">RK4 comparison</option>
+    </select>
+
+    <div id="celestialEquation" class="equation-display">
+      <div class="equation-line">\( \vec F_{ij} = -G m_i m_j {(\vec r_i-\vec r_j) \over |\vec r_i-\vec r_j|^3} \)</div>
+      <div class="equation-line">\( \vec r_i'=\vec v_i,\quad \vec v_i'={1\over m_i}\sum_{j\ne i}\vec F_{ij} \)</div>
+    </div>
+
+    <div class="row inline-inputs">
+      <label>G <input id="celestialG" type="number" step="0.1" value="1"></label>
+      <label>h <input id="celestialH" type="number" step="0.001" value="0.01"></label>
+    </div>
+
+    <div class="row inline-inputs">
+      <label>M <input id="celestialMassA" type="number" step="0.1" value="10"></label>
+      <label>m <input id="celestialMassB" type="number" step="0.01" value="0.1"></label>
+    </div>
+
+    <div class="row inline-inputs">
+      <label>a <input id="celestialSemiMajor" type="number" step="0.1" value="3"></label>
+      <label>e <input id="celestialEccentricity" type="number" min="0" max="1.2" step="0.05" value="0.45"></label>
+    </div>
+
+    <div class="row inline-inputs">
+      <label>time span <input id="celestialTimeSpan" type="number" step="1" value="30"></label>
+      <label>speed <input id="celestialSpeed" type="number" step="0.1" value="1"></label>
+    </div>
+
+    <label>selected object</label>
+    <select id="celestialBodySelect"></select>
+
+    <div class="celestial-button-row">
+      <button id="celestialAddPlanetBtn" type="button">Add planet</button>
+      <button id="celestialAddStarBtn" type="button">Add star</button>
+      <button id="celestialResetPresetBtn" type="button">Reset preset</button>
+    </div>
+
+    <div class="row inline-inputs celestial-body-editor">
+      <label>mass <input id="celestialBodyMass" type="number" step="0.1" value="1"></label>
+      <label>radius <input id="celestialBodyRadius" type="number" step="0.01" value="0.2"></label>
+      <label>orbit a <input id="celestialBodyOrbit" type="number" step="0.1" value="3"></label>
+      <label>phase <input id="celestialBodyPhase" type="number" step="0.05" value="0"></label>
+      <label>inclination <input id="celestialBodyInclination" type="number" step="1" value="0"></label>
+    </div>
+
+    <div class="celestial-metrics">
+      <span><strong>E</strong> <em id="celestialMetricEnergy">-1.667</em></span>
+      <span><strong>L</strong> <em id="celestialMetricAngularMomentum">4.054</em></span>
+      <span><strong>e</strong> <em id="celestialMetricEccentricity">0.450</em></span>
+      <span><strong>|A|</strong> <em id="celestialMetricRungeLenz">0.450</em></span>
+    </div>
+  </div>
+
+  <div class="panel celestial-output-panel">
+    <div class="celestial-stage">
+      <canvas id="celestialCanvas" width="1100" height="520"></canvas>
+    </div>
+    <div class="celestial-animation-controls">
+      <button id="celestialPlayBtn" type="button">Play</button>
+      <input id="celestialTimeSlider" type="range" min="0" max="1" step="0.001" value="0.28">
+      <span id="celestialTimeLabel">t=8.4</span>
+    </div>
+    <div class="celestial-plot-grid">
+      <div id="celestialEnergyPlot" class="methods-plot"></div>
+      <div id="celestialAngularPlot" class="methods-plot"></div>
+      <div id="celestialElementsPlot" class="methods-plot"></div>
     </div>
   </div>
 </div>
@@ -528,6 +872,8 @@ window.MathJax = {
 <script src="js/methods/second-order-methods.js"></script>
 <script src="js/methods/second-order-lab.js"></script>
 <script src="js/physics/physics-lab.js"></script>
+<script src="js/chaos/chaos-lab.js"></script>
+<script src="js/celestial/celestial-lab.js"></script>
 <script src="js/core/ui.js"></script>
 <script src="js/plotter/plotter.js"></script>
 <script src="js/app.js"></script>

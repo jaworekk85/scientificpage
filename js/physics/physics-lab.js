@@ -14,12 +14,68 @@
     wolf: loadPhysicsImage("assets/physics/wolf-icon.png")
   };
   const neuronSprite = loadPhysicsImage("assets/physics/neuron-sprite.png");
+  const PHYSICS_CATEGORIES = [
+    {
+      key: "mechanical",
+      label: "Mechanical",
+      systems: [
+        ["oscillator", "oscillator"],
+        ["pendulum", "pendulum"],
+        ["projectile", "projectile motion"],
+        ["verticalBounce", "vertical bounce"],
+        ["coupledOscillators", "coupled oscillators"]
+      ]
+    },
+    {
+      key: "rotation",
+      label: "Rotation / rigid body",
+      systems: [
+        ["rotatingDisk", "rotating disk / variable inertia"],
+        ["rollingBodies", "rolling sphere / cylinder / hoop"],
+        ["spool", "pulled spool"],
+        ["wilberforce", "Wilberforce oscillator"],
+        ["gyroscope", "gyroscope / precession"]
+      ]
+    },
+    {
+      key: "fields",
+      label: "Fields & circuits",
+      systems: [
+        ["chargedParticle", "charged particle: E + B fields"],
+        ["rigidDipole", "rigid charged dipole"],
+        ["rlc", "RLC circuit"]
+      ]
+    },
+    {
+      key: "bio",
+      label: "Biological / population",
+      systems: [
+        ["predatorPrey", "predator-prey"],
+        ["neuron", "neuron"]
+      ]
+    },
+    {
+      key: "chaos",
+      label: "Chaos",
+      systems: [
+        ["lorenz", "Lorenz attractor"],
+        ["logisticMap", "logistic map"],
+        ["doublePendulum", "double pendulum"],
+        ["duffing", "Duffing oscillator"],
+        ["liouvilleFlow", "phase flow / Liouville"]
+      ]
+    }
+  ];
 
   function setupPhysicsLab() {
+    populatePhysicsCategorySelect();
+    populatePhysicsSystemSelect();
     populateMethodSelect();
     bindEvents();
     updatePhysicsControls();
-    runPhysicsSimulation();
+    setDynamicsMode();
+    if (isChaosDynamicsSelected()) window.runChaosSimulation?.();
+    else runPhysicsSimulation();
   }
 
   function loadPhysicsImage(src) {
@@ -47,15 +103,80 @@
     select.value = "velocityVerlet";
   }
 
+  function populatePhysicsCategorySelect() {
+    const select = document.getElementById("physicsCategory");
+    if (!select) return;
+    const previous = select.value || PHYSICS_CATEGORIES[0]?.key;
+    select.innerHTML = "";
+    PHYSICS_CATEGORIES.forEach(category => {
+      const option = document.createElement("option");
+      option.value = category.key;
+      option.textContent = category.label;
+      select.appendChild(option);
+    });
+    select.value = PHYSICS_CATEGORIES.some(category => category.key === previous)
+      ? previous
+      : PHYSICS_CATEGORIES[0]?.key;
+  }
+
+  function populatePhysicsSystemSelect(categoryKey = document.getElementById("physicsCategory")?.value) {
+    const select = document.getElementById("physicsSystem");
+    if (!select) return;
+    const category = PHYSICS_CATEGORIES.find(item => item.key === categoryKey) || PHYSICS_CATEGORIES[0];
+    const previous = select.value;
+    select.innerHTML = "";
+    category.systems.forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    select.value = category.systems.some(([value]) => value === previous)
+      ? previous
+      : category.systems[0]?.[0];
+  }
+
+  function isChaosDynamicsSelected() {
+    return document.getElementById("physicsCategory")?.value === "chaos"
+      || document.getElementById("physicsSystem")?.value === "lorenz";
+  }
+
+  function setDynamicsMode() {
+    const chaosMode = isChaosDynamicsSelected();
+    if (chaosMode && isPlaying) {
+      isPlaying = false;
+      const playButton = document.getElementById("physicsPlayBtn");
+      if (playButton) playButton.textContent = "Play";
+    }
+    if (!chaosMode) window.stopChaosAnimation?.();
+    document.getElementById("physicsControlsBody")?.classList.toggle("hidden", chaosMode);
+    document.getElementById("physicsOutputBody")?.classList.toggle("hidden", chaosMode);
+    document.getElementById("chaosControlsBody")?.classList.toggle("hidden", !chaosMode);
+    document.getElementById("chaosOutputBody")?.classList.toggle("hidden", !chaosMode);
+  }
+
   function bindEvents() {
     const plotButton = document.getElementById("physicsPlotBtn");
     if (plotButton) plotButton.addEventListener("click", runPhysicsSimulation);
+    const categorySelect = document.getElementById("physicsCategory");
     const systemSelect = document.getElementById("physicsSystem");
+    if (categorySelect && systemSelect) {
+      categorySelect.addEventListener("change", () => {
+        populatePhysicsSystemSelect(categorySelect.value);
+        setDynamicsMode();
+        if (!isChaosDynamicsSelected()) applySystemDefaults(systemSelect.value);
+        updatePhysicsControls();
+        if (isChaosDynamicsSelected()) window.runChaosSimulation?.();
+        else runPhysicsSimulation();
+      });
+    }
     if (systemSelect) {
       systemSelect.addEventListener("change", () => {
-        applySystemDefaults(systemSelect.value);
+        setDynamicsMode();
+        if (!isChaosDynamicsSelected()) applySystemDefaults(systemSelect.value);
         updatePhysicsControls();
-        runPhysicsSimulation();
+        if (isChaosDynamicsSelected()) window.runChaosSimulation?.();
+        else runPhysicsSimulation();
       });
     }
     const oscillatorModeSelect = document.getElementById("physicsOscillatorMode");
@@ -68,7 +189,7 @@
         updatePhysicsControls();
       });
     }
-    document.querySelectorAll("#physics .physics-controls-panel input:not(#physicsSpeed), #physics .physics-controls-panel select:not(#physicsSystem)").forEach(el => {
+    document.querySelectorAll("#physicsControlsBody input:not(#physicsSpeed), #physicsControlsBody select:not(#physicsSystem):not(#physicsCategory)").forEach(el => {
       el.addEventListener("change", runPhysicsSimulation);
     });
     document.getElementById("physicsSpeed").addEventListener("change", () => {
@@ -102,6 +223,14 @@
     const physicsTab = document.querySelector('[data-tab="physics"]');
     if (physicsTab) physicsTab.addEventListener("click", () => {
       window.setTimeout(() => {
+        if (isChaosDynamicsSelected()) {
+          window.refreshChaosFrame?.();
+          ["chaosPhasePlot", "chaosTimePlot", "chaosSeparationPlot"].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) window.Plotly.Plots.resize(el);
+          });
+          return;
+        }
         resizeCanvasToDisplay();
         lastPlotCursorUpdate = 0;
         drawFrame(animationT);
@@ -114,6 +243,11 @@
   }
 
   function runPhysicsSimulation() {
+    if (isChaosDynamicsSelected()) {
+      setDynamicsMode();
+      window.runChaosSimulation?.();
+      return;
+    }
     if (!window.SecondOrderMethods) return;
 
     const wasPlaying = isPlaying;
@@ -166,7 +300,12 @@
   function simulatePhysicsModel(model, methodKey) {
     if (model.mode === "planar") return simulatePlanarSystem(model, methodKey);
     if (model.mode === "particle2d") return simulateParticle2D(model, methodKey);
+    if (model.mode === "rigidDipole") return simulateRigidDipole(model, methodKey);
     if (model.mode === "coupled") return simulateCoupledOscillators(model, methodKey);
+    if (model.mode === "wilberforce") return simulateWilberforce(model, methodKey);
+    if (model.mode === "rollingBodies") return simulateRollingBodies(model, methodKey);
+    if (model.mode === "spool") return simulateSpool(model, methodKey);
+    if (model.mode === "heavyTop") return simulateHeavyTop(model, methodKey);
     if (model.mode === "circuitFirstOrder") return simulateCircuitFirstOrder(model, methodKey);
     return window.SecondOrderMethods.simulateSecondOrder({
       equation: model.equation,
@@ -340,6 +479,11 @@
     const electricEx = finiteOr(parseFloat(document.getElementById("physicsElectricEx")?.value), 1);
     const electricEy = finiteOr(parseFloat(document.getElementById("physicsElectricEy")?.value), 0);
     const magneticB = finiteOr(parseFloat(document.getElementById("physicsMagneticB")?.value), 1);
+    const dipoleDistance = Math.max(finiteOr(parseFloat(document.getElementById("physicsDipoleDistance")?.value), 1), 0.05);
+    const dipoleInertia = Math.max(finiteOr(parseFloat(document.getElementById("physicsDipoleInertia")?.value), 0.12), 0.005);
+    const dipoleDamping = Math.max(finiteOr(parseFloat(document.getElementById("physicsDipoleDamping")?.value), 0.04), 0);
+    const dipoleTheta0 = finiteOr(parseFloat(document.getElementById("physicsDipoleTheta0")?.value), 80) * Math.PI / 180;
+    const dipoleOmega0 = finiteOr(parseFloat(document.getElementById("physicsDipoleOmega0")?.value), 0);
     const phaseProjection = document.getElementById("physicsPhaseProjection")?.value || defaultPhaseProjection(type);
     const coupledOmega = finiteOr(parseFloat(document.getElementById("physicsCoupledOmega")?.value), 1);
     const coupledKappa = finiteOr(parseFloat(document.getElementById("physicsCoupledKappa")?.value), 0.35);
@@ -348,6 +492,49 @@
     const coupledV1 = finiteOr(parseFloat(document.getElementById("physicsCoupledV1")?.value), 0);
     const coupledX2 = finiteOr(parseFloat(document.getElementById("physicsCoupledX2")?.value), 0);
     const coupledV2 = finiteOr(parseFloat(document.getElementById("physicsCoupledV2")?.value), 0);
+    const rotationI0 = Math.max(finiteOr(parseFloat(document.getElementById("physicsRotationI0")?.value), 3), 0.05);
+    const rotationI1 = Math.max(finiteOr(parseFloat(document.getElementById("physicsRotationI1")?.value), 1), 0.05);
+    const rotationTau = finiteOr(parseFloat(document.getElementById("physicsRotationTau")?.value), 0);
+    const rotationTheta0 = finiteOr(parseFloat(document.getElementById("physicsRotationTheta0")?.value), 0);
+    const rotationOmega0 = finiteOr(parseFloat(document.getElementById("physicsRotationOmega0")?.value), 2);
+    const rollingAngle = clamp(finiteOr(parseFloat(document.getElementById("physicsRollingAngle")?.value), 18), 1, 60) * Math.PI / 180;
+    const rollingLength = Math.max(finiteOr(parseFloat(document.getElementById("physicsRollingLength")?.value), 8), 1);
+    const rollingRadius = Math.max(finiteOr(parseFloat(document.getElementById("physicsRollingRadius")?.value), 0.35), 0.05);
+    const rollingG = finiteOr(parseFloat(document.getElementById("physicsRollingG")?.value), 9.81);
+    const rollingDrag = Math.max(finiteOr(parseFloat(document.getElementById("physicsRollingDrag")?.value), 0), 0);
+    const spoolMass = Math.max(finiteOr(parseFloat(document.getElementById("physicsSpoolMass")?.value), 1), 0.05);
+    const spoolRadius = Math.max(finiteOr(parseFloat(document.getElementById("physicsSpoolRadius")?.value), 0.55), 0.08);
+    const spoolAxleRadius = clamp(finiteOr(parseFloat(document.getElementById("physicsSpoolAxleRadius")?.value), 0.22), 0.02, spoolRadius * 0.95);
+    const spoolInertiaK = Math.max(finiteOr(parseFloat(document.getElementById("physicsSpoolInertiaK")?.value), 0.55), 0.05);
+    const spoolForce = finiteOr(parseFloat(document.getElementById("physicsSpoolForce")?.value), 1.2);
+    const spoolPullAngle = clamp(finiteOr(parseFloat(document.getElementById("physicsSpoolPullAngle")?.value), 75), -170, 170) * Math.PI / 180;
+    const spoolDrag = Math.max(finiteOr(parseFloat(document.getElementById("physicsSpoolDrag")?.value), 0.02), 0);
+    const wilberforceMass = Math.max(finiteOr(parseFloat(document.getElementById("physicsWilberforceMass")?.value), 1), 0.05);
+    const wilberforceI = Math.max(finiteOr(parseFloat(document.getElementById("physicsWilberforceI")?.value), 0.2), 0.01);
+    const wilberforceKz = Math.max(finiteOr(parseFloat(document.getElementById("physicsWilberforceKz")?.value), 4), 0.01);
+    const wilberforceKt = Math.max(finiteOr(parseFloat(document.getElementById("physicsWilberforceKt")?.value), 0.8), 0.01);
+    const wilberforceCouplingLimit = Math.sqrt(wilberforceKz * wilberforceKt) * 0.96;
+    const wilberforceCoupling = clamp(
+      finiteOr(parseFloat(document.getElementById("physicsWilberforceCoupling")?.value), 0.18),
+      -wilberforceCouplingLimit,
+      wilberforceCouplingLimit
+    );
+    const wilberforceDamping = Math.max(finiteOr(parseFloat(document.getElementById("physicsWilberforceDamping")?.value), 0), 0);
+    const wilberforceZ0 = finiteOr(parseFloat(document.getElementById("physicsWilberforceZ0")?.value), 1);
+    const wilberforceVz0 = finiteOr(parseFloat(document.getElementById("physicsWilberforceVz0")?.value), 0);
+    const wilberforceTheta0 = finiteOr(parseFloat(document.getElementById("physicsWilberforceTheta0")?.value), 0);
+    const wilberforceOmega0 = finiteOr(parseFloat(document.getElementById("physicsWilberforceOmega0")?.value), 0);
+    const gyroMass = Math.max(finiteOr(parseFloat(document.getElementById("physicsGyroMass")?.value), 1), 0.05);
+    const gyroD = Math.max(finiteOr(parseFloat(document.getElementById("physicsGyroD")?.value), 0.9), 0.05);
+    const gyroI1 = Math.max(finiteOr(parseFloat(document.getElementById("physicsGyroI1")?.value), 0.45), 0.01);
+    const gyroI = Math.max(finiteOr(parseFloat(document.getElementById("physicsGyroI")?.value), 0.2), 0.01);
+    const gyroSpin = finiteOr(parseFloat(document.getElementById("physicsGyroSpin")?.value), 35);
+    const gyroTiltDeg = clamp(finiteOr(parseFloat(document.getElementById("physicsGyroTilt")?.value), 35), 1, 85);
+    const gyroTilt = gyroTiltDeg * Math.PI / 180;
+    const gyroG = finiteOr(parseFloat(document.getElementById("physicsGyroG")?.value), 9.81);
+    const gyroPhi0 = finiteOr(parseFloat(document.getElementById("physicsGyroPhi0")?.value), 0);
+    const gyroThetaDot0 = finiteOr(parseFloat(document.getElementById("physicsGyroThetaDot0")?.value), 0);
+    const gyroPhiDot0 = finiteOr(parseFloat(document.getElementById("physicsGyroPhiDot0")?.value), 1.1);
 
     const forcing = Math.abs(driveA) > 1e-9 ? driveA : 0;
     const compare = {
@@ -503,6 +690,39 @@
       });
     }
 
+    if (type === "rigidDipole") {
+      return {
+        type,
+        mode: "rigidDipole",
+        t0,
+        t1,
+        h,
+        x0: particleX0,
+        yParticle0: particleY0,
+        vx0: particleVx0,
+        vy0: particleVy0,
+        theta0: dipoleTheta0,
+        omega0: dipoleOmega0,
+        y0: dipoleTheta0,
+        v0: dipoleOmega0,
+        charge: particleCharge,
+        mass: particleMass,
+        drag: particleDrag,
+        dipoleDistance,
+        dipoleInertia,
+        dipoleDamping,
+        electricEx,
+        electricEy,
+        magneticB,
+        params: { q: particleCharge, m: particleMass, ex: electricEx, ey: electricEy, bz: magneticB },
+        phaseProjection: phaseProjectionOptions(type).some(option => option.value === phaseProjection)
+          ? phaseProjection
+          : defaultPhaseProjection(type),
+        latex: buildRigidDipoleLatex(particleCharge, particleMass, dipoleDistance, dipoleInertia, electricEx, electricEy, magneticB, particleDrag, dipoleDamping),
+        description: modelDescription(type)
+      };
+    }
+
     if (type === "coupledOscillators") {
       return {
         type,
@@ -521,6 +741,158 @@
         v0: coupledV1,
         phaseProjection: normalizePhaseProjection("coupled", phaseProjection, defaultPhaseProjection(type)),
         latex: buildCoupledOscillatorsLatex(coupledOmega, coupledKappa, coupledGamma),
+        description: modelDescription(type)
+      };
+    }
+
+    if (type === "rotatingDisk") {
+      const span = t1 - t0 || 1;
+      const inertiaAt = t => {
+        const fraction = clamp((t - t0) / span, 0, 1);
+        return rotationI0 + (rotationI1 - rotationI0) * fraction;
+      };
+      const inertiaPrime = (rotationI1 - rotationI0) / span;
+      return {
+        type,
+        mode: "planar",
+        t0,
+        t1,
+        h,
+        y0: rotationTheta0,
+        v0: rotationOmega0,
+        rotationI0,
+        rotationI1,
+        rotationTau,
+        inertiaAt,
+        inertiaPrime,
+        derivative: (t, theta, omega) => ({
+          y: omega,
+          v: (rotationTau - inertiaPrime * omega) / inertiaAt(t)
+        }),
+        latex: buildRotatingDiskLatex(rotationI0, rotationI1, rotationTau),
+        description: modelDescription(type)
+      };
+    }
+
+    if (type === "rollingBodies") {
+      return {
+        type,
+        mode: "rollingBodies",
+        t0,
+        t1,
+        h,
+        rollingAngle,
+        rollingLength,
+        rollingRadius,
+        rollingDrag,
+        rollingG,
+        bodies: rollingBodySpecs(),
+        phaseProjection: phaseProjectionOptions(type).some(option => option.value === phaseProjection)
+          ? phaseProjection
+          : defaultPhaseProjection(type),
+        postStep: (before, next) => ({ state: clampRollingBodiesState(next, rollingLength) }),
+        latex: buildRollingBodiesLatex(rollingG, rollingAngle, rollingDrag),
+        description: modelDescription(type)
+      };
+    }
+
+    if (type === "spool") {
+      const spoolAcceleration = spoolForce * (Math.cos(spoolPullAngle) + spoolAxleRadius / spoolRadius) / (spoolMass * (1 + spoolInertiaK));
+      return {
+        type,
+        mode: "spool",
+        t0,
+        t1,
+        h,
+        y0: 0,
+        v0: 0,
+        spoolRadius,
+        spoolAxleRadius,
+        spoolInertiaK,
+        spoolForce,
+        spoolPullAngle,
+        spoolDrag,
+        mass: spoolMass,
+        spoolAcceleration,
+        derivative: (time, state) => ({
+          s: state.v,
+          v: spoolAcceleration - spoolDrag * state.v,
+          phi: state.omega,
+          omega: (spoolAcceleration - spoolDrag * state.v) / spoolRadius
+        }),
+        latex: buildSpoolLatex(spoolMass, spoolRadius, spoolAxleRadius, spoolInertiaK, spoolForce, spoolPullAngle, spoolDrag),
+        description: modelDescription(type)
+      };
+    }
+
+    if (type === "wilberforce") {
+      const verticalFrequency = Math.sqrt(wilberforceKz / wilberforceMass);
+      const torsionFrequency = Math.sqrt(wilberforceKt / wilberforceI);
+      return {
+        type,
+        mode: "wilberforce",
+        t0,
+        t1,
+        h,
+        y0: wilberforceZ0,
+        v0: wilberforceVz0,
+        x1: wilberforceZ0,
+        v1: wilberforceVz0,
+        x2: wilberforceTheta0,
+        v2: wilberforceOmega0,
+        wilberforceMass,
+        wilberforceI,
+        wilberforceKz,
+        wilberforceKt,
+        wilberforceCoupling,
+        wilberforceDamping,
+        verticalFrequency,
+        torsionFrequency,
+        derivative: (t, state) => ({
+          x1: state.v1,
+          v1: (-wilberforceKz * state.x1 - wilberforceCoupling * state.x2 - wilberforceDamping * state.v1) / wilberforceMass,
+          x2: state.v2,
+          v2: (-wilberforceKt * state.x2 - wilberforceCoupling * state.x1 - wilberforceDamping * state.v2) / wilberforceI
+        }),
+        latex: buildWilberforceLatex(wilberforceMass, wilberforceI, wilberforceKz, wilberforceKt, wilberforceCoupling, wilberforceDamping),
+        description: modelDescription(type)
+      };
+    }
+
+    if (type === "gyroscope") {
+      const spinAngularMomentum = gyroI * gyroSpin;
+      const pPhi = gyroI1 * gyroPhiDot0 * Math.sin(gyroTilt) * Math.sin(gyroTilt)
+        + spinAngularMomentum * Math.cos(gyroTilt);
+      const torque = gyroMass * gyroG * gyroD * Math.sin(gyroTilt);
+      return {
+        type,
+        mode: "heavyTop",
+        t0,
+        t1,
+        h,
+        y0: gyroTilt,
+        v0: gyroThetaDot0,
+        theta0: gyroTilt,
+        thetaDot0: gyroThetaDot0,
+        phi0: gyroPhi0,
+        phiDot0: gyroPhiDot0,
+        psi0: 0,
+        gyroMass,
+        gyroD,
+        gyroI1,
+        gyroI3: gyroI,
+        gyroSpin,
+        gyroTilt,
+        gyroTiltDeg,
+        gyroG,
+        gyroPphi: pPhi,
+        gyroPpsi: spinAngularMomentum,
+        spinAngularMomentum,
+        torque,
+        phaseProjection: phaseProjectionOptions(type).some(option => option.value === phaseProjection)
+          ? phaseProjection
+          : defaultPhaseProjection(type),
+        latex: buildGyroscopeLatex(gyroMass, gyroD, gyroI1, gyroI, gyroSpin, gyroTiltDeg, gyroThetaDot0, gyroPhiDot0, gyroG),
         description: modelDescription(type)
       };
     }
@@ -802,22 +1174,39 @@
     if (type === "projectile") return "projectile motion: gravity bends a 2D trajectory";
     if (type === "verticalBounce") return "vertical projectile motion with energy loss at the floor";
     if (type === "chargedParticle") return "charged particle in uniform electric and magnetic fields";
+    if (type === "rigidDipole") return "rigid charged dipole: two charges on a rod in uniform E and B fields";
     if (type === "coupledOscillators") return "two linear oscillators connected by a coupling spring";
+    if (type === "rotatingDisk") return "rotating disk: angular momentum, torque, and changing moment of inertia";
+    if (type === "rollingBodies") return "rolling bodies: sphere, cylinder, and hoop race down the same incline";
+    if (type === "spool") return "pulled spool: rolling without slipping with a tangent string force";
+    if (type === "wilberforce") return "Wilberforce oscillator: periodic energy exchange between z and θ";
+    if (type === "gyroscope") return "gyroscope: symmetric heavy top with φ precession and θ nutation";
     if (type === "rlc") return "RLC circuit: charge and current behave like a damped oscillator";
     if (type === "predatorPrey") return "predator-prey: two populations coupled by feedback";
     if (type === "neuron") return "FitzHugh-Nagumo neuron: voltage and recovery variable";
     return "";
   }
 
-  function updatePhysicsControls(model = readModel()) {
+  function updatePhysicsControls(model = null) {
+    if (isChaosDynamicsSelected()) {
+      setDynamicsMode();
+      return;
+    }
+    if (!model) model = readModel();
     const type = document.getElementById("physicsSystem").value;
     const oscillator = type === "oscillator";
     const resonance = oscillator && (document.getElementById("physicsOscillatorMode")?.value || "simulation") === "resonance";
     const pendulum = type === "pendulum";
-    const particle = type === "projectile" || type === "verticalBounce" || type === "chargedParticle";
+    const particle = type === "projectile" || type === "verticalBounce" || type === "chargedParticle" || type === "rigidDipole";
     const bounce = type === "verticalBounce";
     const chargedParticle = type === "chargedParticle";
+    const rigidDipole = type === "rigidDipole";
     const coupled = type === "coupledOscillators";
+    const rotation = type === "rotatingDisk";
+    const rolling = type === "rollingBodies";
+    const spool = type === "spool";
+    const wilberforce = type === "wilberforce";
+    const gyro = type === "gyroscope";
     const rlc = type === "rlc";
     const predator = type === "predatorPrey";
     const compare = oscillator || pendulum || rlc || predator;
@@ -826,7 +1215,7 @@
     const linearPendulumCompare = pendulum && pendulumCompareMode === "linear";
     const visibility = {
       secondMethod: true,
-      initial: !resonance && !particle && !coupled,
+      initial: !resonance && !particle && !coupled && !rotation && !rolling && !spool && !wilberforce && !gyro && !rigidDipole,
       omega: oscillator,
       oscillatorMode: oscillator,
       oscillatorAnimation: oscillator && !resonance,
@@ -843,17 +1232,27 @@
       comparePendulumCustom: compareEnabled && pendulum && !linearPendulumCompare,
       compareRlc: compareEnabled && rlc,
       comparePredator: compareEnabled && predator,
-      phaseProjection: particle || coupled,
+      phaseProjection: particle || coupled || gyro || rigidDipole || rolling,
       particleInitial: particle && !bounce,
       bounceInitial: bounce,
       particleDrag: particle,
       projectile: type === "projectile" || bounce,
       bounce,
-      chargedParticle,
-      electricField: chargedParticle,
-      magneticField: chargedParticle,
+      chargedParticle: chargedParticle || rigidDipole,
+      electricField: chargedParticle || rigidDipole,
+      magneticField: chargedParticle || rigidDipole,
+      rigidDipole,
+      rigidDipoleInitial: rigidDipole,
       coupled,
       coupledInitial: coupled,
+      rotation,
+      rotationInitial: rotation,
+      rolling,
+      spool,
+      wilberforce,
+      wilberforceInitial: wilberforce,
+      gyro,
+      gyroInitial: gyro,
       rlc,
       predator,
       neuron: type === "neuron"
@@ -912,6 +1311,37 @@
         { value: "x2-v1", label: "x2 vs v1" }
       ];
     }
+    if (type === "gyroscope") {
+      return [
+        { value: "theta-thetaDot", label: "\u03b8 vs \u03b8'" },
+        { value: "phi-phiDot", label: "\u03c6 vs \u03c6'" },
+        { value: "theta-phi", label: "\u03b8 vs \u03c6" },
+        { value: "theta-phiDot", label: "\u03b8 vs \u03c6'" },
+        { value: "thetaDot-phi", label: "\u03b8' vs \u03c6" },
+        { value: "thetaDot-phiDot", label: "\u03b8' vs \u03c6'" }
+      ];
+    }
+    if (type === "rigidDipole") {
+      return [
+        { value: "theta-omega", label: "\u03b8 vs \u03c9" },
+        { value: "x-y", label: "x vs y" },
+        { value: "x-vx", label: "x vs vx" },
+        { value: "y-vy", label: "y vs vy" },
+        { value: "vx-vy", label: "vx vs vy" },
+        { value: "x-theta", label: "x vs \u03b8" },
+        { value: "y-theta", label: "y vs \u03b8" },
+        { value: "vx-omega", label: "vx vs \u03c9" },
+        { value: "vy-omega", label: "vy vs \u03c9" }
+      ];
+    }
+    if (type === "rollingBodies") {
+      return [
+        { value: "s-v", label: "s vs v" },
+        { value: "phi-omega", label: "\u03c6 vs \u03c9" },
+        { value: "s-phi", label: "s vs \u03c6" },
+        { value: "v-omega", label: "v vs \u03c9" }
+      ];
+    }
     return [
       { value: "particleCompare", label: "x-vx and y-vy" },
       { value: "x-y", label: "x vs y" },
@@ -926,6 +1356,9 @@
   function defaultPhaseProjection(type) {
     if (type === "verticalBounce") return "y-vy";
     if (type === "coupledOscillators") return "coupledBoth";
+    if (type === "gyroscope") return "theta-thetaDot";
+    if (type === "rigidDipole") return "theta-omega";
+    if (type === "rollingBodies") return "s-v";
     return "particleCompare";
   }
 
@@ -1000,6 +1433,105 @@
     }
     return equationMarkup(equation, params, [
       "linearized pendulum: sin(theta) is replaced by theta"
+    ]);
+  }
+
+  function buildRotatingDiskLatex(i0, i1, tau) {
+    const equation = "\\dot{\\theta}=\\omega,\\quad \\dot{\\omega}=\\frac{\\tau-\\dot{I}\\omega}{I(t)},\\quad L=I\\omega";
+    return equationMarkup(equation, [
+      ["I_0", i0],
+      ["I_1", i1],
+      ["\\tau", tau]
+    ], [
+      "I(t): moment of inertia changes linearly from I0 to I1",
+      "tau: external torque",
+      "if tau=0, angular momentum L should stay constant"
+    ]);
+  }
+
+  function buildRollingBodiesLatex(g, angle, drag) {
+    const equation = "\\begin{aligned}k&=I/(mR^2),\\quad \\dot{s}=v,\\quad \\dot{\\phi}=v/R,\\\\ \\dot{v}&=\\frac{g\\sin\\alpha}{1+k}-\\gamma v,\\quad \\dot{\\omega}=\\dot{v}/R\\end{aligned}";
+    return equationMarkup(equation, [
+      ["g", g],
+      ["\\alpha", angle],
+      ["\\gamma", drag]
+    ], [
+      "solid sphere: k=2/5; solid cylinder: k=1/2; hoop: k=1",
+      "larger k sends more energy into rotation and less into translation"
+    ]);
+  }
+
+  function buildSpoolLatex(mass, radius, axleRadius, inertiaK, force, pullAngle, drag) {
+    const equation = "\\begin{aligned}I&=kMR^2,\\quad F_x=F\\cos\\alpha,\\quad \\tau_F=Fr,\\\\ \\dot{s}&=v,\\quad \\dot{\\phi}=v/R,\\\\ \\dot{v}&=\\frac{F(\\cos\\alpha+r/R)}{M(1+k)}-\\gamma v,\\quad \\dot{\\omega}=\\dot{v}/R\\end{aligned}";
+    return equationMarkup(equation, [
+      ["M", mass],
+      ["R", radius],
+      ["r", axleRadius],
+      ["k", inertiaK],
+      ["F", force],
+      ["\\alpha", pullAngle],
+      ["\\gamma", drag]
+    ], [
+      "this upper tangent geometry gives the plus sign",
+      "F_x moves the center of mass; tau_F is the string torque about the spool center",
+      "static friction enforces rolling without slipping"
+    ]);
+  }
+
+  function buildWilberforceLatex(mass, inertia, kz, kt, coupling, damping) {
+    const equation = "m\\ddot{z}=-k_z z-\\epsilon\\theta-\\gamma\\dot{z},\\quad I\\ddot{\\theta}=-k_\\theta\\theta-\\epsilon z-\\gamma\\dot{\\theta}";
+    return equationMarkup(equation, [
+      ["m", mass],
+      ["I", inertia],
+      ["k_z", kz],
+      ["k_\\theta", kt],
+      ["\\epsilon", coupling],
+      ["\\gamma", damping]
+    ], [
+      "z: vertical displacement of the suspended mass",
+      "\u03b8: torsional angle of the spring and mass",
+      "\u03b5: coupling that periodically exchanges energy between z and \u03b8"
+    ]);
+  }
+
+  function buildRigidDipoleLatex(charge, mass, distance, inertia, ex, ey, magneticB, drag, damping) {
+    const equation = "\\begin{aligned}\\mathbf u&=(\\cos\\theta,\\sin\\theta),\\quad \\mathbf u_\\perp=(-\\sin\\theta,\\cos\\theta),\\\\ \\mathbf r_\\pm&=(x,y)\\pm\\frac d2\\mathbf u,\\quad \\mathbf v_\\pm=(v_x,v_y)\\pm\\frac d2\\omega\\mathbf u_\\perp,\\\\ \\mathbf F_\\pm&=\\pm q\\left(\\mathbf E+\\mathbf v_\\pm\\times B_z\\hat{\\mathbf z}\\right),\\\\[2pt] \\Longrightarrow\\quad \\dot{x}&=v_x,\\quad \\dot{y}=v_y,\\quad \\dot{\\theta}=\\omega,\\\\ \\dot{v}_x&=\\frac{q d B_z}{M}\\omega\\cos\\theta-\\gamma_t v_x,\\\\ \\dot{v}_y&=\\frac{q d B_z}{M}\\omega\\sin\\theta-\\gamma_t v_y,\\\\ \\dot{\\omega}&=\\frac{q d}{I}\\left(E_y\\cos\\theta-E_x\\sin\\theta-B_z(v_x\\cos\\theta+v_y\\sin\\theta)\\right)-\\frac{\\gamma_{rot}}{I}\\omega\\end{aligned}";
+    return equationMarkup(equation, [
+      ["q", charge],
+      ["M", mass],
+      ["d", distance],
+      ["I", inertia],
+      ["E_x", ex],
+      ["E_y", ey],
+      ["B_z", magneticB],
+      ["\\gamma_t", drag],
+      ["\\gamma_{rot}", damping]
+    ], [
+      "top lines show where the endpoint forces come from",
+      "bottom lines are the first-order ODE actually integrated",
+      "the rod is rigid: the charges stay separated by d",
+      "B_z=0 gives the clean electric dipole torque case",
+      "drag damps center-of-mass motion; gamma_rot damps rotation"
+    ]);
+  }
+
+  function buildGyroscopeLatex(mass, distance, transverseInertia, spinInertia, spin, tiltDeg, thetaDot0, phiDot0, g) {
+    const equation = "\\dot{\\phi}=\\frac{p_\\phi-p_\\psi\\cos\\theta}{I_1\\sin^2\\theta},\\quad I_1\\ddot{\\theta}=I_1\\dot{\\phi}^2\\sin\\theta\\cos\\theta-p_\\psi\\dot{\\phi}\\sin\\theta+Mgd\\sin\\theta";
+    return equationMarkup(equation, [
+      ["M", mass],
+      ["d", distance],
+      ["I_1", transverseInertia],
+      ["I_3", spinInertia],
+      ["\\omega_3", spin],
+      ["\\theta_0", tiltDeg],
+      ["\\dot{\\theta}_0", thetaDot0],
+      ["\\dot{\\phi}_0", phiDot0],
+      ["g", g],
+    ], [
+      "symmetric heavy top with a fixed pivot",
+      "\u03b8: tilt of the body axis from vertical; changing \u03b8 is nutation",
+      "\u03c6: azimuth around the vertical axis; changing \u03c6 is precession",
+      "\u03c8: spin about the body axis; p_\u03c6 and p_\u03c8 are conserved"
     ]);
   }
 
@@ -1162,6 +1694,11 @@
     if (model.type === "rlc") return { y: "q", v: "i" };
     if (model.type === "predatorPrey") return { y: "sheep", v: "wolves" };
     if (model.type === "neuron") return { y: "u", v: "w" };
+    if (model.type === "rotatingDisk") return { y: "\u03b8", v: "\u03c9" };
+    if (model.type === "spool") return { y: "s", v: "v" };
+    if (model.type === "wilberforce") return { y: "z", v: "vz" };
+    if (model.type === "gyroscope") return { y: "\u03b8", v: "\u03b8'" };
+    if (model.type === "rigidDipole") return { y: "\u03b8", v: "\u03c9" };
     if (model.mode === "particle2d") return { y: "x", v: "vx" };
     if (model.mode === "coupled") return { y: "x1", v: "v1" };
     return { y: "x", v: "v" };
@@ -1188,6 +1725,34 @@
       total: "combined rate",
       title: "instantaneous rates",
       axis: "rate"
+    };
+    if (model.type === "rotatingDisk") return {
+      a: "rotational energy",
+      b: "angular momentum",
+      total: "moment of inertia",
+      title: "rotation diagnostics",
+      axis: "value"
+    };
+    if (model.type === "spool") return {
+      a: "translational kinetic",
+      b: "rotational kinetic",
+      total: "total kinetic",
+      title: "spool energy",
+      axis: "E"
+    };
+    if (model.type === "wilberforce") return {
+      a: "vertical mode energy",
+      b: "torsional mode energy",
+      total: "total energy",
+      title: "Wilberforce energy exchange",
+      axis: "E"
+    };
+    if (model.type === "gyroscope") return {
+      a: "rotational kinetic",
+      b: "gravitational potential",
+      total: "total energy",
+      title: "gyroscope energy",
+      axis: "E"
     };
     return {
       a: "kinetic",
@@ -1245,41 +1810,44 @@
       return specs;
     }
 
-    if (model.mode === "coupled") {
+    if (model.mode === "coupled" || model.mode === "wilberforce") {
       return [
         {
           key: "kinetic1",
-          name: "mass 1 kinetic",
+          name: model.mode === "wilberforce" ? "vertical kinetic" : "mass 1 kinetic",
           color: "#2563eb",
-          value: (m, point) => 0.5 * point.v1 * point.v1
+          value: (m, point) => 0.5 * (m.wilberforceMass || 1) * point.v1 * point.v1
         },
         {
           key: "kinetic2",
-          name: "mass 2 kinetic",
+          name: model.mode === "wilberforce" ? "rotational kinetic" : "mass 2 kinetic",
           color: "#0ea5e9",
-          value: (m, point) => 0.5 * point.v2 * point.v2
+          value: (m, point) => 0.5 * (m.wilberforceI || 1) * point.v2 * point.v2
         },
         {
           key: "wallSpring",
-          name: "outer springs",
+          name: model.mode === "wilberforce" ? "vertical spring" : "outer springs",
           color: "#f97316",
-          value: (m, point) => 0.5 * m.omega * m.omega * (point.x1 * point.x1 + point.x2 * point.x2)
+          value: (m, point) => model.mode === "wilberforce"
+            ? 0.5 * m.wilberforceKz * point.x1 * point.x1
+            : 0.5 * m.omega * m.omega * (point.x1 * point.x1 + point.x2 * point.x2)
         },
         {
           key: "coupling",
-          name: "coupling spring",
+          name: model.mode === "wilberforce" ? "torsion + coupling" : "coupling spring",
           color: "#a855f7",
-          value: (m, point) => 0.5 * m.kappa * (point.x1 - point.x2) * (point.x1 - point.x2)
+          value: (m, point) => model.mode === "wilberforce"
+            ? 0.5 * m.wilberforceKt * point.x2 * point.x2 + m.wilberforceCoupling * point.x1 * point.x2
+            : 0.5 * m.kappa * (point.x1 - point.x2) * (point.x1 - point.x2)
         },
         {
           key: "total",
           name: "total energy",
           color: "#16a34a",
           width: 2.8,
-          value: (m, point) => 0.5 * point.v1 * point.v1
-            + 0.5 * point.v2 * point.v2
-            + 0.5 * m.omega * m.omega * (point.x1 * point.x1 + point.x2 * point.x2)
-            + 0.5 * m.kappa * (point.x1 - point.x2) * (point.x1 - point.x2)
+          value: (m, point) => energyComponentSpecs(m)
+            .filter(spec => spec.key !== "total")
+            .reduce((sum, spec) => sum + spec.value(m, point), 0)
         }
       ];
     }
@@ -1566,8 +2134,20 @@
       drawParticlePlots(model, result);
       return;
     }
-    if (model.mode === "coupled") {
+    if (model.mode === "rigidDipole") {
+      drawRigidDipolePlots(model, result);
+      return;
+    }
+    if (model.mode === "rollingBodies") {
+      drawRollingBodiesPlots(model, result);
+      return;
+    }
+    if (model.mode === "coupled" || model.mode === "wilberforce") {
       drawCoupledPlots(model, result);
+      return;
+    }
+    if (model.mode === "heavyTop") {
+      drawHeavyTopPlots(model, result);
       return;
     }
     setExtraPhysicsPlotVisible(false);
@@ -1765,7 +2345,7 @@
       {
         x: [],
         y: [],
-        name: "kinetic elapsed",
+        name: `${metricNames.a} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#2563eb", width: 2.2 }
@@ -1773,7 +2353,7 @@
       {
         x: [],
         y: [],
-        name: "potential elapsed",
+        name: `${metricNames.b} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#f97316", width: 2.2 }
@@ -1781,7 +2361,7 @@
       {
         x: [],
         y: [],
-        name: "total elapsed",
+        name: `${metricNames.total} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#16a34a", width: 2.8 }
@@ -1817,6 +2397,131 @@
     }, { responsive: true });
   }
 
+  function drawHeavyTopPlots(model, result) {
+    const points = result.points;
+    const t = points.map(point => point.t);
+    const theta = points.map(point => point.theta);
+    const thetaDot = points.map(point => point.thetaDot);
+    const phi = points.map(point => point.phi);
+    const phiDot = points.map(point => point.phiDot);
+    const angular = points.map(point => heavyTopAngularMomentum(model, point));
+    const energy = points.map(point => metricParts(model, point));
+    const projectionKey = model.phaseProjection || defaultPhaseProjection(model.type);
+    const projection = projectionTrace(model, points, projectionKey);
+    const currentProjection = projectionPoint(model, points[0], projectionKey);
+
+    window.Plotly.newPlot("physicsTimePlot", [
+      timeTrace(t, theta, "\u03b8(t)", "#2563eb"),
+      timeTrace(t, thetaDot, "\u03b8'(t)", "#dc2626"),
+      timeTrace(t, phi, "\u03c6(t)", "#7c3aed"),
+      timeTrace(t, phiDot, "\u03c6'(t)", "#f97316"),
+      elapsedTrace("\u03b8 elapsed", "#2563eb"),
+      elapsedTrace("\u03b8' elapsed", "#dc2626"),
+      elapsedTrace("\u03c6 elapsed", "#7c3aed"),
+      elapsedTrace("\u03c6' elapsed", "#f97316")
+    ], {
+      title: "Euler angles over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "\u03b8, \u03b8', \u03c6, \u03c6'", range: paddedRange([...theta, ...thetaDot, ...phi, ...phiDot]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-euler-time`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsPhasePlot", [
+      {
+        x: projection.x,
+        y: projection.y,
+        name: "phase projection",
+        mode: "lines",
+        line: { color: "#111827", width: 1.5 },
+        opacity: 0.25
+      },
+      {
+        x: [],
+        y: [],
+        name: "phase elapsed",
+        mode: "lines",
+        showlegend: false,
+        line: { color: "#111827", width: 2.8 }
+      },
+      {
+        x: [currentProjection.x],
+        y: [currentProjection.y],
+        name: "current state",
+        mode: "markers",
+        showlegend: false,
+        marker: { color: "#dc2626", size: 12, line: { color: "#fff", width: 2 } }
+      }
+    ], {
+      title: `phase projection: ${projection.xLabel} vs ${projection.yLabel}`,
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: projection.xLabel, range: paddedRange(projection.x), autorange: false, fixedrange: true },
+      yaxis: { title: projection.yLabel, range: paddedRange(projection.y), autorange: false, fixedrange: true },
+      uirevision: `${model.type}-phase-${projectionKey}`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsEnergyPlot", [
+      timeTrace(t, angular.map(item => item.lz), "L_z conserved", "#16a34a"),
+      timeTrace(t, angular.map(item => item.l3), "L_3 body axis", "#2563eb"),
+      timeTrace(t, angular.map(item => item.lPerp), "L_\u22a5", "#f97316"),
+      timeTrace(t, angular.map(item => item.lTotal), "|L|", "#7c3aed"),
+      elapsedTrace("L_z elapsed", "#16a34a"),
+      elapsedTrace("L_3 elapsed", "#2563eb"),
+      elapsedTrace("L_\u22a5 elapsed", "#f97316"),
+      elapsedTrace("|L| elapsed", "#7c3aed")
+    ], {
+      title: "angular momentum components",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "L", range: paddedRange(angular.flatMap(item => [item.lz, item.l3, item.lPerp, item.lTotal])), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-angular-momentum`
+    }, { responsive: true });
+
+    setExtraPhysicsPlotVisible(true);
+    window.Plotly.newPlot("physicsExtraPlot", [
+      timeTrace(t, energy.map(item => item.kinetic), "rotational kinetic", "#2563eb"),
+      timeTrace(t, energy.map(item => item.potential), "gravitational potential", "#f97316"),
+      timeTrace(t, energy.map(item => item.total), "total energy", "#16a34a"),
+      elapsedTrace("kinetic elapsed", "#2563eb"),
+      elapsedTrace("potential elapsed", "#f97316"),
+      elapsedTrace("total elapsed", "#16a34a", 2.8)
+    ], {
+      title: "gyroscope energy",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "E", range: paddedRange(energy.flatMap(item => [item.kinetic, item.potential, item.total])), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-energy`
+    }, { responsive: true });
+  }
+
+  function timeTrace(x, y, name, color) {
+    return {
+      x,
+      y,
+      name,
+      mode: "lines",
+      line: { color, width: 1.5 },
+      opacity: 0.25
+    };
+  }
+
+  function elapsedTrace(name, color, width = 2.6) {
+    return {
+      x: [],
+      y: [],
+      name,
+      mode: "lines",
+      showlegend: false,
+      line: { color, width }
+    };
+  }
+
   function projectionTrace(model, points, projection) {
     const [xKey, yKey] = projection.split("-");
     return {
@@ -1842,6 +2547,12 @@
 
   function projectionLabel(key) {
     if (key === "y") return "y";
+    if (key === "theta") return "\u03b8";
+    if (key === "thetaDot") return "\u03b8'";
+    if (key === "omega") return "\u03c9";
+    if (key === "torque") return "\u03c4";
+    if (key === "phi") return "\u03c6";
+    if (key === "phiDot") return "\u03c6'";
     return key;
   }
 
@@ -1940,6 +2651,210 @@
     }, { responsive: true });
 
     drawParticlePhaseProjectionPlot(model, points);
+  }
+
+  function drawRigidDipolePlots(model, result) {
+    const points = result.points;
+    const t = points.map(point => point.t);
+    const x = points.map(point => point.x);
+    const y = points.map(point => point.yPos);
+    const theta = points.map(point => point.theta);
+    const omega = points.map(point => point.omega);
+    const torque = points.map(point => point.torque);
+    const energy = points.map(point => metricParts(model, point));
+    const projectionKey = model.phaseProjection || defaultPhaseProjection(model.type);
+    const projection = projectionTrace(model, points, projectionKey);
+    const currentProjection = projectionPoint(model, points[0], projectionKey);
+
+    window.Plotly.newPlot("physicsTimePlot", [
+      timeTrace(t, theta, "\u03b8(t)", "#7c3aed"),
+      timeTrace(t, omega, "\u03c9(t)", "#dc2626"),
+      timeTrace(t, torque, "\u03c4(t)", "#f97316"),
+      elapsedTrace("\u03b8 elapsed", "#7c3aed"),
+      elapsedTrace("\u03c9 elapsed", "#dc2626"),
+      elapsedTrace("\u03c4 elapsed", "#f97316")
+    ], {
+      title: "dipole rotation over time",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "\u03b8, \u03c9, \u03c4", range: paddedRange([...theta, ...omega, ...torque]), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-time`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsPhasePlot", [
+      {
+        x: projection.x,
+        y: projection.y,
+        name: "phase projection",
+        mode: "lines",
+        line: { color: "#111827", width: 1.5 },
+        opacity: 0.25
+      },
+      elapsedTrace("phase elapsed", "#111827", 2.8),
+      {
+        x: [currentProjection.x],
+        y: [currentProjection.y],
+        name: "current state",
+        mode: "markers",
+        showlegend: false,
+        marker: { color: "#dc2626", size: 12, line: { color: "#fff", width: 2 } }
+      }
+    ], {
+      title: `phase projection: ${projection.xLabel} vs ${projection.yLabel}`,
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: projection.xLabel, range: paddedRange(projection.x), autorange: false, fixedrange: true },
+      yaxis: { title: projection.yLabel, range: paddedRange(projection.y), autorange: false, fixedrange: true },
+      uirevision: `${model.type}-phase-${projectionKey}`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsEnergyPlot", [
+      timeTrace(t, energy.map(item => item.kinetic), "translational kinetic", "#2563eb"),
+      timeTrace(t, energy.map(item => item.rotational), "rotational kinetic", "#7c3aed"),
+      timeTrace(t, energy.map(item => item.potential), "electric potential", "#f97316"),
+      timeTrace(t, energy.map(item => item.total), "total energy", "#16a34a"),
+      elapsedTrace("translation elapsed", "#2563eb"),
+      elapsedTrace("rotation elapsed", "#7c3aed"),
+      elapsedTrace("potential elapsed", "#f97316"),
+      elapsedTrace("total elapsed", "#16a34a", 2.8)
+    ], {
+      title: "dipole energy",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "E", range: paddedRange(energy.flatMap(item => [item.kinetic, item.rotational, item.potential, item.total])), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-energy`
+    }, { responsive: true });
+
+    setExtraPhysicsPlotVisible(true);
+    window.Plotly.newPlot("physicsExtraPlot", [
+      {
+        x,
+        y,
+        name: "center of mass",
+        mode: "lines",
+        line: { color: "#2563eb", width: 1.5 },
+        opacity: 0.28
+      },
+      elapsedTrace("trajectory elapsed", "#2563eb", 2.8),
+      {
+        x: [x[0]],
+        y: [y[0]],
+        name: "current center",
+        mode: "markers",
+        showlegend: false,
+        marker: { color: "#dc2626", size: 11, line: { color: "#fff", width: 2 } }
+      }
+    ], {
+      title: "center-of-mass trajectory",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "x", range: paddedRange(x), autorange: false, fixedrange: true },
+      yaxis: { title: "y", range: paddedRange(y), autorange: false, fixedrange: true, scaleanchor: "x", scaleratio: 1 },
+      uirevision: `${model.type}-trajectory`
+    }, { responsive: true });
+  }
+
+  function drawRollingBodiesPlots(model, result) {
+    const points = result.points;
+    const t = points.map(point => point.t);
+    const positionValues = [];
+    const velocityValues = [];
+    const energyValues = [];
+    const positionTraces = [];
+    const velocityTraces = [];
+    const phaseTraces = [];
+    const energyTraces = [];
+    const projectionKey = model.phaseProjection || defaultPhaseProjection(model.type);
+    const projectionSpec = rollingProjectionSpec(projectionKey);
+
+    model.bodies.forEach(body => {
+      const cap = capitalizeKey(body.key);
+      const s = points.map(point => Math.min(point[`s${cap}`], model.rollingLength));
+      const v = points.map(point => point[`v${cap}`]);
+      const phaseX = points.map(point => rollingProjectionValue(point, body, projectionSpec.xKey));
+      const phaseY = points.map(point => rollingProjectionValue(point, body, projectionSpec.yKey));
+      const energies = points.map(point => point[`energy${cap}`] ?? rollingBodyEnergy(model, body, point));
+      positionValues.push(...s);
+      velocityValues.push(...v);
+      energyValues.push(...energies.flatMap(item => [item.translational, item.rotational, item.potential, item.total]));
+      positionTraces.push(timeTrace(t, s, `${body.label} s(t)`, body.color));
+      velocityTraces.push(timeTrace(t, v, `${body.label} v(t)`, body.color));
+      phaseTraces.push({
+        x: phaseX,
+        y: phaseY,
+        name: body.label,
+        mode: "lines",
+        line: { color: body.color, width: 2 },
+        opacity: 0.75
+      });
+      energyTraces.push(
+        { ...timeTrace(t, energies.map(item => item.potential), `${body.label} potential`, body.color), line: { color: body.color, width: 1.8, dash: "dot" } },
+        { ...timeTrace(t, energies.map(item => item.translational), `${body.label} translational`, body.color), line: { color: body.color, width: 1.8 } },
+        { ...timeTrace(t, energies.map(item => item.rotational), `${body.label} rotational`, body.color), line: { color: body.color, width: 1.8, dash: "dash" } }
+      );
+    });
+
+    positionTraces.push(...model.bodies.map(body => elapsedTrace(`${body.label} elapsed`, body.color, 2.8)));
+    velocityTraces.push(...model.bodies.map(body => elapsedTrace(`${body.label} elapsed`, body.color, 2.8)));
+
+    window.Plotly.newPlot("physicsTimePlot", positionTraces, {
+      title: "rolling distance along the incline",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "s", range: paddedRange(positionValues), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-position`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsPhasePlot", velocityTraces, {
+      title: "rolling speed",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "v", range: paddedRange(velocityValues), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-velocity`
+    }, { responsive: true });
+
+    window.Plotly.newPlot("physicsEnergyPlot", [
+      ...phaseTraces,
+      ...model.bodies.map(body => elapsedTrace(`${body.label} phase elapsed`, body.color, 2.8))
+    ], {
+      title: `phase projection: ${projectionSpec.xLabel} vs ${projectionSpec.yLabel}`,
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: projectionSpec.xLabel, range: paddedRange(phaseTraces.flatMap(trace => trace.x)), autorange: false, fixedrange: true },
+      yaxis: { title: projectionSpec.yLabel, range: paddedRange(phaseTraces.flatMap(trace => trace.y)), autorange: false, fixedrange: true },
+      uirevision: `${model.type}-phase-${projectionKey}`
+    }, { responsive: true });
+
+    setExtraPhysicsPlotVisible(true);
+    window.Plotly.newPlot("physicsExtraPlot", energyTraces, {
+      title: "energy components per unit mass",
+      margin: { t: 42, r: 16, b: 42, l: 52 },
+      xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
+      yaxis: { title: "E/m", range: paddedRange(energyValues), autorange: false, fixedrange: true },
+      shapes: [timeCursorShape(model.t0)],
+      annotations: [timeCursorAnnotation(model.t0)],
+      uirevision: `${model.type}-energy`
+    }, { responsive: true });
+  }
+
+  function rollingProjectionSpec(key) {
+    const specs = {
+      "s-v": { xKey: "s", yKey: "v", xLabel: "s", yLabel: "v" },
+      "phi-omega": { xKey: "phi", yKey: "omega", xLabel: "\u03c6", yLabel: "\u03c9" },
+      "s-phi": { xKey: "s", yKey: "phi", xLabel: "s", yLabel: "\u03c6" },
+      "v-omega": { xKey: "v", yKey: "omega", xLabel: "v", yLabel: "\u03c9" }
+    };
+    return specs[key] || specs["s-v"];
+  }
+
+  function rollingProjectionValue(point, body, key) {
+    const cap = capitalizeKey(body.key);
+    return point[`${key}${cap}`];
   }
 
   function drawParticlePhaseProjectionPlot(model, points) {
@@ -2049,11 +2964,17 @@
     const x2 = points.map(point => point.x2);
     const v1 = points.map(point => point.v1);
     const v2 = points.map(point => point.v2);
+    const firstName = model.mode === "wilberforce" ? "z mode" : "mass 1";
+    const secondName = model.mode === "wilberforce" ? "\u03b8 mode" : "mass 2";
+    const x1Label = model.mode === "wilberforce" ? "z" : "x1";
+    const x2Label = model.mode === "wilberforce" ? "θ" : "x2";
+    const v1Label = model.mode === "wilberforce" ? "v_z" : "v1";
+    const v2Label = model.mode === "wilberforce" ? "ω" : "v2";
     window.Plotly.newPlot("physicsTimePlot", [
       {
         x: t,
         y: x1,
-        name: "x1(t)",
+        name: `${x1Label}(t)`,
         mode: "lines",
         line: { color: "#2563eb", width: 1.5 },
         opacity: 0.25
@@ -2061,7 +2982,7 @@
       {
         x: t,
         y: x2,
-        name: "x2(t)",
+        name: `${x2Label}(t)`,
         mode: "lines",
         line: { color: "#0ea5e9", width: 1.5 },
         opacity: 0.25
@@ -2069,7 +2990,7 @@
       {
         x: [],
         y: [],
-        name: "x1 elapsed",
+        name: `${x1Label} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#2563eb", width: 2.6 }
@@ -2077,16 +2998,16 @@
       {
         x: [],
         y: [],
-        name: "x2 elapsed",
+        name: `${x2Label} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#0ea5e9", width: 2.6 }
       }
     ], {
-      title: "two displacements over time",
+      title: model.mode === "wilberforce" ? "z and \u03b8 coordinates" : "two displacements over time",
       margin: { t: 42, r: 16, b: 42, l: 52 },
       xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
-      yaxis: { title: "x1, x2", range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
+      yaxis: { title: `${x1Label}, ${x2Label}`, range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
       shapes: [timeCursorShape(model.t0)],
       annotations: [timeCursorAnnotation(model.t0)],
       uirevision: `${model.type}-time`
@@ -2096,7 +3017,7 @@
       {
         x: t,
         y: v1,
-        name: "v1(t)",
+        name: `${v1Label}(t)`,
         mode: "lines",
         line: { color: "#dc2626", width: 1.5 },
         opacity: 0.25
@@ -2104,7 +3025,7 @@
       {
         x: t,
         y: v2,
-        name: "v2(t)",
+        name: `${v2Label}(t)`,
         mode: "lines",
         line: { color: "#f97316", width: 1.5 },
         opacity: 0.25
@@ -2112,7 +3033,7 @@
       {
         x: [],
         y: [],
-        name: "v1 elapsed",
+        name: `${v1Label} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#dc2626", width: 2.6 }
@@ -2120,16 +3041,16 @@
       {
         x: [],
         y: [],
-        name: "v2 elapsed",
+        name: `${v2Label} elapsed`,
         mode: "lines",
         showlegend: false,
         line: { color: "#f97316", width: 2.6 }
       }
     ], {
-      title: "two velocities over time",
+      title: model.mode === "wilberforce" ? "z' and \u03b8' velocities" : "two velocities over time",
       margin: { t: 42, r: 16, b: 42, l: 52 },
       xaxis: { title: "t", range: [model.t0, model.t1], autorange: false, fixedrange: true },
-      yaxis: { title: "v1, v2", range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
+      yaxis: { title: `${v1Label}, ${v2Label}`, range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
       shapes: [timeCursorShape(model.t0)],
       annotations: [timeCursorAnnotation(model.t0)],
       uirevision: `${model.type}-velocities`
@@ -2140,7 +3061,7 @@
         {
           x: x1,
           y: v1,
-          name: "mass 1 phase",
+          name: `${firstName} phase`,
           mode: "lines",
           line: { color: "#2563eb", width: 1.5 },
           opacity: 0.25
@@ -2148,7 +3069,7 @@
         {
           x: x2,
           y: v2,
-          name: "mass 2 phase",
+          name: `${secondName} phase`,
           mode: "lines",
           line: { color: "#0ea5e9", width: 1.5 },
           opacity: 0.25
@@ -2156,7 +3077,7 @@
         {
           x: [],
           y: [],
-          name: "mass 1 elapsed",
+          name: `${firstName} elapsed`,
           mode: "lines",
           showlegend: false,
           line: { color: "#2563eb", width: 2.7 }
@@ -2164,7 +3085,7 @@
         {
           x: [],
           y: [],
-          name: "mass 2 elapsed",
+          name: `${secondName} elapsed`,
           mode: "lines",
           showlegend: false,
           line: { color: "#0ea5e9", width: 2.7 }
@@ -2172,7 +3093,7 @@
         {
           x: [model.x1],
           y: [model.v1],
-          name: "mass 1 current",
+          name: `${firstName} current`,
           mode: "markers",
           showlegend: false,
           marker: { color: "#2563eb", size: 11, line: { color: "#fff", width: 2 } }
@@ -2180,16 +3101,16 @@
         {
           x: [model.x2],
           y: [model.v2],
-          name: "mass 2 current",
+          name: `${secondName} current`,
           mode: "markers",
           showlegend: false,
           marker: { color: "#0ea5e9", size: 11, line: { color: "#fff", width: 2 } }
         }
       ], {
-        title: "phase spaces of both masses",
+        title: model.mode === "wilberforce" ? "phase spaces of both modes" : "phase spaces of both masses",
         margin: { t: 42, r: 16, b: 42, l: 52 },
-        xaxis: { title: "x", range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
-        yaxis: { title: "v", range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
+        xaxis: { title: model.mode === "wilberforce" ? "coordinate" : "x", range: paddedRange([...x1, ...x2]), autorange: false, fixedrange: true },
+        yaxis: { title: model.mode === "wilberforce" ? "rate" : "v", range: paddedRange([...v1, ...v2]), autorange: false, fixedrange: true },
         uirevision: `${model.type}-phase`
       }, { responsive: true });
     } else {
@@ -2378,6 +3299,159 @@
     return result;
   }
 
+  function simulateRigidDipole(model, methodKey) {
+    const result = simulateVectorSystem(model, methodKey, {
+      x: model.x0,
+      y: model.yParticle0,
+      vx: model.vx0,
+      vy: model.vy0,
+      theta: model.theta0,
+      omega: model.omega0
+    }, (t, state) => rigidDipoleDerivative(model, state));
+    result.points = result.points.map(point => {
+      const diagnostics = rigidDipoleDiagnostics(model, point);
+      return {
+        ...point,
+        yPos: point.y,
+        y: point.theta,
+        v: point.omega,
+        torque: diagnostics.torque,
+        forceX: diagnostics.fx,
+        forceY: diagnostics.fy
+      };
+    });
+    result.method = systemMethodInfo(methodKey, "rigid charged dipole 6D system");
+    return result;
+  }
+
+  function rigidDipoleDerivative(model, state) {
+    const diagnostics = rigidDipoleDiagnostics(model, state);
+    return {
+      x: state.vx,
+      y: state.vy,
+      vx: diagnostics.fx / model.mass - model.drag * state.vx,
+      vy: diagnostics.fy / model.mass - model.drag * state.vy,
+      theta: state.omega,
+      omega: (diagnostics.torque - model.dipoleDamping * state.omega) / model.dipoleInertia
+    };
+  }
+
+  function rigidDipoleDiagnostics(model, state) {
+    const half = model.dipoleDistance * 0.5;
+    const ux = Math.cos(state.theta);
+    const uy = Math.sin(state.theta);
+    const rx = half * ux;
+    const ry = half * uy;
+    const vpx = state.vx - state.omega * ry;
+    const vpy = state.vy + state.omega * rx;
+    const vmx = state.vx + state.omega * ry;
+    const vmy = state.vy - state.omega * rx;
+    const fpx = model.charge * (model.electricEx + vpy * model.magneticB);
+    const fpy = model.charge * (model.electricEy - vpx * model.magneticB);
+    const fmx = -model.charge * (model.electricEx + vmy * model.magneticB);
+    const fmy = -model.charge * (model.electricEy - vmx * model.magneticB);
+    const fx = fpx + fmx;
+    const fy = fpy + fmy;
+    const torque = rx * fpy - ry * fpx + (-rx) * fmy - (-ry) * fmx;
+    return { fx, fy, torque, fpx, fpy, fmx, fmy, rx, ry };
+  }
+
+  function rollingBodySpecs() {
+    return [
+      { key: "sphere", label: "sphere", k: 2 / 5, color: "#2563eb" },
+      { key: "cylinder", label: "cylinder", k: 1 / 2, color: "#16a34a" },
+      { key: "hoop", label: "hoop", k: 1, color: "#dc2626" }
+    ];
+  }
+
+  function simulateRollingBodies(model, methodKey) {
+    const initialState = {};
+    model.bodies.forEach(body => {
+      const cap = capitalizeKey(body.key);
+      initialState[`s${cap}`] = 0;
+      initialState[`v${cap}`] = 0;
+      initialState[`phi${cap}`] = 0;
+      initialState[`omega${cap}`] = 0;
+    });
+    const result = simulateVectorSystem(model, methodKey, initialState, (t, state) => rollingBodiesDerivative(model, state));
+    result.points = result.points.map(point => {
+      const mapped = { ...point };
+      model.bodies.forEach(body => {
+        const cap = capitalizeKey(body.key);
+        mapped[`energy${cap}`] = rollingBodyEnergy(model, body, point);
+      });
+      mapped.y = point.sSphere;
+      mapped.v = point.vSphere;
+      return mapped;
+    });
+    result.method = systemMethodInfo(methodKey, "rolling bodies comparison");
+    return result;
+  }
+
+  function rollingBodiesDerivative(model, state) {
+    const derivative = {};
+    model.bodies.forEach(body => {
+      const cap = capitalizeKey(body.key);
+      const sKey = `s${cap}`;
+      const vKey = `v${cap}`;
+      const phiKey = `phi${cap}`;
+      const omegaKey = `omega${cap}`;
+      const atEnd = state[sKey] >= model.rollingLength && state[vKey] >= 0;
+      const acceleration = atEnd
+        ? 0
+        : model.rollingG * Math.sin(model.rollingAngle) / (1 + body.k) - model.rollingDrag * state[vKey];
+      derivative[sKey] = atEnd ? 0 : state[vKey];
+      derivative[vKey] = acceleration;
+      derivative[phiKey] = atEnd ? 0 : state[vKey] / model.rollingRadius;
+      derivative[omegaKey] = acceleration / model.rollingRadius;
+    });
+    return derivative;
+  }
+
+  function clampRollingBodiesState(state, trackLength) {
+    const next = { ...state };
+    rollingBodySpecs().forEach(body => {
+      const cap = capitalizeKey(body.key);
+      const sKey = `s${cap}`;
+      if (next[sKey] >= trackLength) {
+        next[sKey] = trackLength;
+        next[`v${cap}`] = 0;
+        next[`omega${cap}`] = 0;
+      }
+    });
+    return next;
+  }
+
+  function rollingBodyEnergy(model, body, point) {
+    const cap = capitalizeKey(body.key);
+    const s = clamp(point[`s${cap}`], 0, model.rollingLength);
+    const v = point[`v${cap}`] || 0;
+    const translational = 0.5 * v * v;
+    const rotational = 0.5 * body.k * v * v;
+    const potential = model.rollingG * Math.sin(model.rollingAngle) * Math.max(model.rollingLength - s, 0);
+    return { translational, rotational, potential, total: translational + rotational + potential };
+  }
+
+  function simulateSpool(model, methodKey) {
+    const result = simulateVectorSystem(model, methodKey, {
+      s: 0,
+      v: 0,
+      phi: 0,
+      omega: 0
+    }, (t, state) => model.derivative(t, state));
+    result.points = result.points.map(point => ({
+      ...point,
+      y: point.s,
+      v: point.v
+    }));
+    result.method = systemMethodInfo(methodKey, "pulled spool 4D rolling system");
+    return result;
+  }
+
+  function capitalizeKey(value) {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
   function particleDerivative(model, t, state) {
     const ax = model.acceleration.ax(state, t) - model.drag * state.vx;
     const ay = model.acceleration.ay(state, t) - model.drag * state.vy;
@@ -2409,6 +3483,92 @@
     }));
     result.method = systemMethodInfo(methodKey, "coupled 4D system");
     return result;
+  }
+
+  function simulateWilberforce(model, methodKey) {
+    const result = simulateVectorSystem(model, methodKey, {
+      x1: model.x1,
+      v1: model.v1,
+      x2: model.x2,
+      v2: model.v2
+    }, (t, state) => model.derivative(t, state));
+    result.points = result.points.map(point => ({
+      ...point,
+      z: point.x1,
+      vz: point.v1,
+      theta: point.x2,
+      omega: point.v2,
+      y: point.x1,
+      v: point.v1
+    }));
+    result.method = systemMethodInfo(methodKey, "Wilberforce 4D coupled oscillator");
+    return result;
+  }
+
+  function simulateHeavyTop(model, methodKey) {
+    const result = simulateVectorSystem(model, methodKey, {
+      theta: model.theta0,
+      thetaDot: model.thetaDot0,
+      phi: model.phi0,
+      psi: model.psi0
+    }, (t, state) => heavyTopRates(model, state));
+    result.points = result.points.map(point => {
+      const rates = heavyTopRates(model, point);
+      return {
+        ...point,
+        y: point.theta,
+        v: point.thetaDot,
+        phiDot: rates.phi,
+        psiDot: rates.psi,
+        spinRate: rates.spinRate
+      };
+    });
+    result.method = systemMethodInfo(methodKey, "symmetric heavy top");
+    return result;
+  }
+
+  function heavyTopRates(model, state) {
+    const theta = clamp(state.theta, 0.035, Math.PI - 0.035);
+    const sinTheta = Math.sin(theta);
+    const cosTheta = Math.cos(theta);
+    const sin2 = Math.max(sinTheta * sinTheta, 1e-5);
+    const phiDot = (model.gyroPphi - model.gyroPpsi * cosTheta) / (model.gyroI1 * sin2);
+    const spinRate = model.gyroPpsi / model.gyroI3;
+    const psiDot = spinRate - phiDot * cosTheta;
+    const thetaAccel = phiDot * phiDot * sinTheta * cosTheta
+      - (model.gyroPpsi / model.gyroI1) * phiDot * sinTheta
+      + (model.gyroMass * model.gyroG * model.gyroD / model.gyroI1) * sinTheta;
+    return {
+      theta: state.thetaDot,
+      thetaDot: thetaAccel,
+      phi: phiDot,
+      psi: psiDot,
+      spinRate
+    };
+  }
+
+  function heavyTopAngularMomentum(model, point) {
+    const theta = clamp(point.theta ?? point.y, 0.035, Math.PI - 0.035);
+    const thetaDot = point.thetaDot ?? point.v ?? 0;
+    const rates = heavyTopRates(model, {
+      theta,
+      thetaDot,
+      phi: point.phi ?? 0,
+      psi: point.psi ?? 0
+    });
+    const lTheta = model.gyroI1 * thetaDot;
+    const lPhi = model.gyroI1 * rates.phi * Math.sin(theta);
+    const lPerp = Math.hypot(lTheta, lPhi);
+    const l3 = model.gyroPpsi;
+    const lz = model.gyroPphi;
+    return {
+      lTheta,
+      lPhi,
+      lPerp,
+      l3,
+      lz,
+      lTotal: Math.hypot(lPerp, l3)
+    };
   }
 
   function simulateVectorSystem(model, methodKey, initialState, derivative) {
@@ -2681,8 +3841,32 @@
     if (result.limited) parts.push(`h limited to ${formatNumber(Math.abs(result.h))}`);
     if (model.mode === "planar") parts.push(result.method.note || `2D system solved with ${result.method.label}`);
     if (model.mode === "particle2d") parts.push(result.method.note || `2D motion solved with ${result.method.label}`);
+    if (model.mode === "rollingBodies") parts.push(result.method.note || `rolling bodies comparison solved with ${result.method.label}`);
+    if (model.mode === "spool") parts.push(result.method.note || `spool rolling system solved with ${result.method.label}`);
     if (model.mode === "coupled") parts.push(result.method.note || `coupled system solved with ${result.method.label}`);
     if (model.mode === "circuitFirstOrder" && result.note) parts.push(result.note);
+    if (model.type === "rotatingDisk") {
+      parts.push(Math.abs(model.rotationTau) < 1e-9
+        ? "tau=0: angular momentum L=I omega should stay nearly constant"
+        : "external torque changes angular momentum");
+    }
+    if (model.type === "rollingBodies") {
+      parts.push("larger I/(mR^2) rolls more slowly: sphere beats cylinder, hoop is slowest");
+    }
+    if (model.type === "spool") {
+      parts.push("current tangent geometry gives a = F(cos(alpha)+r/R)/(M(1+k)) before damping");
+    }
+    if (model.type === "wilberforce") {
+      parts.push("coupled z and \u03b8 modes exchange energy through \u03b5");
+    }
+    if (model.type === "gyroscope") {
+      parts.push("symmetric heavy top: \u03b8 nutates and \u03c6 precesses from conserved p_\u03c6 and p_\u03c8");
+    }
+    if (model.type === "rigidDipole") {
+      parts.push(Math.abs(model.magneticB) < 1e-9
+        ? "Bz=0: clean electric dipole torque p x E"
+        : "Bz enabled: Lorentz forces are applied at both endpoint charges");
+    }
     if (model.compare?.enabled && model.type === "pendulum" && model.compare.pendulumMode === "linear") {
       parts.push("B is the linear model: theta'' = -(g/L) theta");
     } else if (model.compare?.enabled) {
@@ -2765,6 +3949,26 @@
         physicsMagneticB: 0.6,
         physicsPhaseProjection: "particleCompare"
       },
+      rigidDipole: {
+        physicsT1: 18,
+        physicsH: 0.015,
+        physicsParticleX0: 0,
+        physicsParticleY0: 0,
+        physicsParticleVx0: 0,
+        physicsParticleVy0: 0,
+        physicsParticleDrag: 0,
+        physicsParticleCharge: 1,
+        physicsParticleMass: 1,
+        physicsElectricEx: 1,
+        physicsElectricEy: 0,
+        physicsMagneticB: 0,
+        physicsDipoleDistance: 1,
+        physicsDipoleInertia: 0.12,
+        physicsDipoleDamping: 0.04,
+        physicsDipoleTheta0: 80,
+        physicsDipoleOmega0: 0,
+        physicsPhaseProjection: "theta-omega"
+      },
       coupledOscillators: {
         physicsT1: 35,
         physicsH: 0.03,
@@ -2776,6 +3980,64 @@
         physicsCoupledX2: 0,
         physicsCoupledV2: 0,
         physicsPhaseProjection: "coupledBoth"
+      },
+      rotatingDisk: {
+        physicsT1: 12,
+        physicsH: 0.02,
+        physicsRotationI0: 3,
+        physicsRotationI1: 1,
+        physicsRotationTau: 0,
+        physicsRotationTheta0: 0,
+        physicsRotationOmega0: 2
+      },
+      rollingBodies: {
+        physicsT1: 7,
+        physicsH: 0.01,
+        physicsRollingAngle: 18,
+        physicsRollingLength: 8,
+        physicsRollingRadius: 0.35,
+        physicsRollingG: 9.81,
+        physicsRollingDrag: 0,
+        physicsPhaseProjection: "s-v"
+      },
+      spool: {
+        physicsT1: 8,
+        physicsH: 0.01,
+        physicsSpoolMass: 1,
+        physicsSpoolRadius: 0.55,
+        physicsSpoolAxleRadius: 0.22,
+        physicsSpoolInertiaK: 0.55,
+        physicsSpoolForce: 2,
+        physicsSpoolPullAngle: 75,
+        physicsSpoolDrag: 0.02
+      },
+      wilberforce: {
+        physicsT1: 40,
+        physicsH: 0.02,
+        physicsWilberforceMass: 1,
+        physicsWilberforceI: 0.2,
+        physicsWilberforceKz: 4,
+        physicsWilberforceKt: 0.8,
+        physicsWilberforceCoupling: 0.18,
+        physicsWilberforceDamping: 0,
+        physicsWilberforceZ0: 1,
+        physicsWilberforceVz0: 0,
+        physicsWilberforceTheta0: 0,
+        physicsWilberforceOmega0: 0
+      },
+      gyroscope: {
+        physicsT1: 14,
+        physicsH: 0.01,
+        physicsGyroMass: 1,
+        physicsGyroD: 0.9,
+        physicsGyroI1: 0.45,
+        physicsGyroI: 0.2,
+        physicsGyroSpin: 35,
+        physicsGyroTilt: 35,
+        physicsGyroG: 9.81,
+        physicsGyroPhi0: 0,
+        physicsGyroThetaDot0: 0,
+        physicsGyroPhiDot0: 1.1
       },
       rlc: {
         physicsT1: 30,
@@ -2871,8 +4133,20 @@
       }
     } else if (currentModel.mode === "particle2d") {
       drawParticle2D(ctx, width, height, state, currentModel);
+    } else if (currentModel.mode === "rigidDipole") {
+      drawRigidDipole(ctx, width, height, state, currentModel);
     } else if (currentModel.mode === "coupled") {
       drawCoupledOscillators(ctx, width, height, state, currentModel);
+    } else if (currentModel.type === "rotatingDisk") {
+      drawRotatingDisk(ctx, width, height, state, currentModel);
+    } else if (currentModel.type === "rollingBodies") {
+      drawRollingBodies(ctx, width, height, state, currentModel);
+    } else if (currentModel.type === "spool") {
+      drawSpool(ctx, width, height, state, currentModel);
+    } else if (currentModel.type === "wilberforce") {
+      drawWilberforce(ctx, width, height, state, currentModel);
+    } else if (currentModel.type === "gyroscope") {
+      drawGyroscope(ctx, width, height, state, currentModel);
     } else if (currentModel.type === "predatorPrey") {
       if (compareState && currentCompareModel) {
         const predatorUnit = predatorCompareIconUnit(ctx, width, height);
@@ -2908,11 +4182,954 @@
       }
     }
 
-    if (currentModel.type !== "predatorPrey") {
+    if (!["predatorPrey", "rotatingDisk", "rollingBodies", "spool", "wilberforce", "gyroscope"].includes(currentModel.type)) {
       drawCanvasHud(ctx, state, currentModel, compareState);
     }
     updateTimeControls(t);
     updatePlotCursors(t, state, options.forcePlotUpdate);
+  }
+
+  function drawRotatingDisk(ctx, width, height, state, model) {
+    const centerX = width * 0.48;
+    const centerY = height * 0.5;
+    const inertia = model.inertiaAt(state.t);
+    const maxI = Math.max(model.rotationI0, model.rotationI1, 1e-6);
+    const radiusScale = 0.48 + 0.52 * Math.sqrt(clamp(inertia / maxI, 0.08, 1.4));
+    const initialRadiusScale = 0.48 + 0.52 * Math.sqrt(clamp(model.rotationI0 / maxI, 0.08, 1.4));
+    const radius = Math.min(width, height) * 0.2 * radiusScale;
+    const initialRadius = Math.min(width, height) * 0.2 * initialRadiusScale;
+    const radiusRatio = Math.sqrt(inertia / Math.max(model.rotationI0, 1e-9));
+    const theta = state.y;
+    const omega = state.v;
+    const angularMomentum = inertia * omega;
+    const energy = 0.5 * inertia * omega * omega;
+    const omegaRef = Math.max(Math.abs(model.rotationOmega0), Math.abs(omega), 1e-6);
+    const lRef = Math.max(Math.abs(model.rotationI0 * model.rotationOmega0), Math.abs(angularMomentum), 1e-6);
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY + radius * 0.82, radius * 1.15, radius * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 5]);
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, initialRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#e0f2fe";
+    ctx.strokeStyle = "#0369a1";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(14, 165, 233, 0.18)";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * 0.68, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const angle = theta + i * Math.PI / 3;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(centerX + Math.cos(angle) * radius * 0.92, centerY + Math.sin(angle) * radius * 0.92);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 2; i++) {
+      const angle = theta + i * Math.PI;
+      const handX = centerX + Math.cos(angle) * radius * 0.9;
+      const handY = centerY + Math.sin(angle) * radius * 0.9;
+      ctx.fillStyle = "#7c3aed";
+      ctx.beginPath();
+      ctx.arc(handX, handY, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawCircularArrow(
+      ctx,
+      centerX,
+      centerY,
+      radius + 22,
+      theta - Math.PI * 0.55,
+      theta - Math.PI * 0.55 + Math.sign(omega || 1) * Math.PI * 0.8,
+      "#2563eb",
+      "\u03c9"
+    );
+
+    if (Math.abs(model.rotationTau) > 1e-9) {
+      drawCircularArrow(
+        ctx,
+        centerX,
+        centerY,
+        radius + 42,
+        -Math.PI * 0.15,
+        -Math.PI * 0.15 + Math.sign(model.rotationTau) * Math.PI * 0.55,
+        "#f97316",
+        "\u03c4"
+      );
+    }
+
+    const vectorX = width * 0.78;
+    const vectorY = height * 0.56;
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(vectorX, vectorY + 70);
+    ctx.lineTo(vectorX, vectorY - 70);
+    ctx.stroke();
+    drawVectorArrow(ctx, vectorX, vectorY + 28, 0, -angularMomentum / lRef, "#16a34a", "L", 54);
+    drawVectorArrow(ctx, vectorX + 54, vectorY + 28, 0, -omega / omegaRef, "#2563eb", "\u03c9", 44);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(12, 16, 166, 116);
+    ctx.strokeRect(12, 16, 166, 116);
+
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "13px Arial";
+    ctx.fillText(`t = ${formatHudNumber(state.t)}`, 20, 34);
+    ctx.fillText(`I(t) = ${formatHudNumber(inertia)}`, 20, 54);
+    ctx.fillText(`R_eff/R0 = ${formatHudNumber(radiusRatio)}`, 20, 74);
+    ctx.fillText(`\u03c9 = ${formatHudNumber(omega)}`, 20, 94);
+    ctx.fillText(`L = I\u03c9 = ${formatHudNumber(angularMomentum)}`, 20, 114);
+    ctx.fillText(`E_rot = ${formatHudNumber(energy)}`, 20, 128);
+
+    ctx.fillStyle = "#475569";
+    ctx.font = "12px Arial";
+    ctx.fillText("dashed outline: initial effective radius", centerX - 105, centerY + initialRadius + 22);
+    ctx.fillText("smaller I -> faster rotation when tau = 0", centerX - 100, height - 22);
+  }
+
+  function drawRollingBodies(ctx, width, height, state, model) {
+    const columnWidth = width / model.bodies.length;
+    const angle = model.rollingAngle;
+    const normalX = -Math.sin(angle);
+    const normalY = Math.cos(angle);
+    const radiusPx = Math.max(12, Math.min(22, model.rollingRadius * 52));
+    const panelTop = height * 0.18;
+    const panelHeight = height * 0.62;
+    const startY = panelTop + panelHeight * 0.48;
+    const trackLengthPx = columnWidth * 0.66;
+
+    model.bodies.forEach((body, index) => {
+      const cap = capitalizeKey(body.key);
+      const panelX = index * columnWidth + 8;
+      const panelW = columnWidth - 16;
+      const startX = panelX + panelW * 0.16;
+      const endX = startX + trackLengthPx * Math.cos(angle);
+      const endY = startY + trackLengthPx * Math.sin(angle);
+      const s = clamp(state[`s${cap}`] || 0, 0, model.rollingLength);
+      const fraction = clamp(s / model.rollingLength, 0, 1);
+      const centerX = startX + trackLengthPx * fraction * Math.cos(angle) + normalX * (radiusPx + 8);
+      const centerY = startY + trackLengthPx * fraction * Math.sin(angle) - normalY * (radiusPx + 8);
+
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(panelX, panelTop, panelW, panelHeight);
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      drawRollingBody(ctx, centerX, centerY, radiusPx, state[`phi${cap}`] || 0, body);
+      ctx.fillStyle = body.color;
+      ctx.font = "12px Arial";
+      ctx.fillText(body.label, panelX + 10, panelTop + 20);
+      ctx.fillStyle = "#334155";
+      ctx.fillText(`k=${formatHudNumber(body.k)}  s=${formatHudNumber(s)}`, panelX + 10, panelTop + 38);
+      ctx.fillText(`v=${formatHudNumber(state[`v${cap}`] || 0)}`, panelX + 10, panelTop + 56);
+    });
+
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "13px Arial";
+    ctx.fillText(`\u03b1=${formatHudNumber(model.rollingAngle * 180 / Math.PI)} deg  L=${formatHudNumber(model.rollingLength)}  drag=${formatHudNumber(model.rollingDrag)}`, 18, 24);
+  }
+
+  function drawRollingBody(ctx, x, y, radius, phi, body) {
+    ctx.save();
+    ctx.fillStyle = body.key === "hoop" ? "#ffffff" : body.color;
+    ctx.strokeStyle = body.color;
+    ctx.lineWidth = body.key === "hoop" ? 6 : 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = body.key === "hoop" ? body.color : "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(phi) * radius * 0.82, y + Math.sin(phi) * radius * 0.82);
+    ctx.stroke();
+    drawCanvasObjectLabel(ctx, body.key === "sphere" ? "sphere" : body.key === "cylinder" ? "cyl" : "hoop", x, y - radius - 10, body.color);
+    ctx.restore();
+  }
+
+  function drawSpool(ctx, width, height, state, model) {
+    const sValues = (currentResult?.points || []).map(point => point.s).filter(value => Number.isFinite(value));
+    const minS = Math.min(...sValues, state.s, -0.5);
+    const maxS = Math.max(...sValues, state.s, 0.5);
+    const sPad = Math.max((maxS - minS) * 0.12, 0.4);
+    const viewMin = minS - sPad;
+    const viewMax = maxS + sPad;
+    const plotLeft = 58;
+    const plotRight = width - 46;
+    const mapS = value => plotLeft + (value - viewMin) / Math.max(viewMax - viewMin, 1e-6) * (plotRight - plotLeft);
+    const centerX = mapS(state.s);
+    const originX = mapS(0);
+    const groundY = height * 0.72;
+    const radius = Math.min(width, height) * 0.15;
+    const axleRadius = radius * model.spoolAxleRadius / model.spoolRadius;
+    const centerY = groundY - radius;
+    const angle = model.spoolPullAngle;
+    const visualSpin = (centerX - originX) / Math.max(radius, 1e-6);
+    const constraintOmega = state.v / Math.max(model.spoolRadius, 1e-6);
+    const forceX = model.spoolForce * Math.cos(angle);
+    const forceY = -model.spoolForce * Math.sin(angle);
+    const stringTorque = model.spoolForce * model.spoolAxleRadius;
+    const torqueSign = Math.sign(stringTorque || 1);
+    const torqueSpan = clamp(Math.abs(stringTorque) / Math.max(model.spoolRadius, 1e-6), 0.22, 0.72);
+    const tangentX = centerX - Math.sin(angle) * axleRadius;
+    const tangentY = centerY - Math.cos(angle) * axleRadius;
+    const stringEndX = tangentX + Math.cos(angle) * radius * 2.1;
+    const stringEndY = tangentY - Math.sin(angle) * radius * 2.1;
+
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft - 18, groundY);
+    ctx.lineTo(plotRight + 18, groundY);
+    ctx.stroke();
+
+    ctx.fillStyle = "#dbeafe";
+    ctx.strokeStyle = "#1d4ed8";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#1e3a8a";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(centerX + Math.cos(visualSpin) * radius * 0.86, centerY + Math.sin(visualSpin) * radius * 0.86);
+    ctx.stroke();
+    ctx.fillStyle = "#1e3a8a";
+    ctx.beginPath();
+    ctx.arc(centerX + Math.cos(visualSpin) * radius * 0.86, centerY + Math.sin(visualSpin) * radius * 0.86, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, axleRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tangentX, tangentY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(tangentX, tangentY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = "12px Arial";
+    ctx.fillText("r", (centerX + tangentX) * 0.5 + 5, (centerY + tangentY) * 0.5 - 5);
+
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(tangentX, tangentY);
+    ctx.lineTo(stringEndX, stringEndY);
+    ctx.stroke();
+    drawVectorArrow(ctx, stringEndX - Math.cos(angle) * 12, stringEndY + Math.sin(angle) * 12, forceX, forceY, "#dc2626", "F", 38);
+    drawVectorArrow(ctx, tangentX, tangentY + 22, forceX, 0, "#f97316", "F_x", 34);
+    drawCircularArrow(ctx, centerX, centerY, axleRadius + 18, visualSpin - torqueSign * torqueSpan, visualSpin + torqueSign * torqueSpan, "#f97316", "\u03c4_F");
+    drawVectorArrow(ctx, centerX, groundY + 34, Math.sign(model.spoolAcceleration || 1), 0, "#16a34a", "a_cm", 42);
+    const omegaSign = Math.sign(state.v || state.omega || model.spoolAcceleration || 1);
+    const omegaSpan = clamp(Math.abs(state.omega) / 4, 0.22, 0.75);
+    drawCircularArrow(ctx, centerX, centerY, radius * 0.72, visualSpin - omegaSign * omegaSpan, visualSpin + omegaSign * omegaSpan, "#7c3aed", "\u03c9");
+
+    const wrapTerm = Math.cos(angle) + model.spoolAxleRadius / model.spoolRadius;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(16, 16, 342, 144);
+    ctx.strokeRect(16, 16, 342, 144);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "12px Arial";
+    ctx.fillText(`s=${formatHudNumber(state.s)}  v=${formatHudNumber(state.v)}  \u03c9=${formatHudNumber(state.omega)}`, 28, 38);
+    ctx.fillText(`v/R=${formatHudNumber(constraintOmega)}  \u03c9-v/R=${formatHudNumber(state.omega - constraintOmega)}`, 28, 58);
+    ctx.fillText(`a0=${formatHudNumber(model.spoolAcceleration)}  upper tangent`, 28, 78);
+    ctx.fillText(`cos\u03b1+r/R=${formatHudNumber(wrapTerm)}`, 28, 98);
+    ctx.fillText(`F_x=${formatHudNumber(forceX)}  \u03c4_F=${formatHudNumber(stringTorque)}`, 28, 118);
+    ctx.fillText(`sign(a_cm)=${model.spoolAcceleration < 0 ? "-" : "+"}`, 28, 138);
+    ctx.fillStyle = "#475569";
+    ctx.fillText(`view: s ${formatHudNumber(viewMin)} to ${formatHudNumber(viewMax)}`, width - 172, groundY + 28);
+  }
+
+  function drawCircularArrow(ctx, centerX, centerY, radius, startAngle, endAngle, color, label) {
+    const clockwise = endAngle < startAngle;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, endAngle, clockwise);
+    ctx.stroke();
+
+    const direction = clockwise ? -1 : 1;
+    const endX = centerX + Math.cos(endAngle) * radius;
+    const endY = centerY + Math.sin(endAngle) * radius;
+    const tangent = endAngle + direction * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX - Math.cos(tangent) * 10 + Math.cos(endAngle) * 5, endY - Math.sin(tangent) * 10 + Math.sin(endAngle) * 5);
+    ctx.lineTo(endX - Math.cos(tangent) * 10 - Math.cos(endAngle) * 5, endY - Math.sin(tangent) * 10 - Math.sin(endAngle) * 5);
+    ctx.closePath();
+    ctx.fill();
+
+    if (label) {
+      const midAngle = (startAngle + endAngle) / 2;
+      ctx.font = "13px Arial";
+      ctx.fillText(label, centerX + Math.cos(midAngle) * (radius + 10), centerY + Math.sin(midAngle) * (radius + 10));
+    }
+  }
+
+  function drawWilberforce(ctx, width, height, state, model) {
+    const centerX = width * 0.42;
+    const anchorY = height * 0.12;
+    const restY = height * 0.52;
+    const zScale = Math.min(height * 0.16, 82);
+    const bobY = restY + clamp(state.x1, -1.8, 1.8) * zScale;
+    const springTop = anchorY + 18;
+    const springBottom = bobY - 44;
+    const bobW = Math.min(width, height) * 0.2;
+    const bobH = Math.min(width, height) * 0.12;
+    const depth = Math.min(width, height) * 0.035;
+    const theta = state.x2;
+    const omega = state.v2;
+    const verticalEnergy = 0.5 * model.wilberforceMass * state.v1 * state.v1
+      + 0.5 * model.wilberforceKz * state.x1 * state.x1;
+    const torsionalEnergy = 0.5 * model.wilberforceI * omega * omega
+      + 0.5 * model.wilberforceKt * theta * theta;
+    const couplingEnergy = model.wilberforceCoupling * state.x1 * theta;
+    const totalEnergy = verticalEnergy + torsionalEnergy + couplingEnergy;
+    const energyMax = Math.max(verticalEnergy, torsionalEnergy, Math.abs(totalEnergy), 1e-6);
+
+    const shadowGradient = ctx.createRadialGradient(centerX, bobY + 58, 5, centerX, bobY + 58, bobW * 0.7);
+    shadowGradient.addColorStop(0, "rgba(15, 23, 42, 0.18)");
+    shadowGradient.addColorStop(1, "rgba(15, 23, 42, 0)");
+    ctx.fillStyle = shadowGradient;
+    ctx.beginPath();
+    ctx.ellipse(centerX, bobY + 58, bobW * 0.62, bobH * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 118, anchorY - 9);
+    ctx.lineTo(centerX + 96, anchorY - 9);
+    ctx.lineTo(centerX + 122, anchorY + 12);
+    ctx.lineTo(centerX - 92, anchorY + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(centerX - 62, anchorY + 12);
+    ctx.lineTo(centerX + 62, anchorY + 12);
+    ctx.stroke();
+
+    drawHelicalSpring3D(ctx, centerX, springTop, springBottom, 15, 22, depth, theta * 0.45);
+
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 1.3;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(centerX - 125, restY);
+    ctx.lineTo(centerX + 125, restY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px Arial";
+    ctx.fillText("z=0", centerX + 132, restY + 4);
+
+    drawWilberforceBob3D(ctx, centerX, bobY, bobW, bobH, depth, theta);
+
+    const rateRanges = wilberforceRateRanges(state.v1, omega);
+    drawVectorArrow(ctx, centerX + bobW * 0.65, bobY, 0, normalizedRateValue(state.v1, rateRanges.z), "#2563eb", "z'", 34);
+    drawRateCircularArrow(ctx, centerX, bobY, bobW * 0.42 + 18, theta, omega, rateRanges.omega, "#7c3aed", "\u03c9");
+
+    const panelX = width * 0.66;
+    const panelY = height * 0.22;
+    drawEnergyBar(ctx, panelX, panelY, 160, "E_z", verticalEnergy / energyMax, "#2563eb");
+    drawEnergyBar(ctx, panelX, panelY + 34, 160, "E_\u03b8", torsionalEnergy / energyMax, "#7c3aed");
+    drawEnergyBar(ctx, panelX, panelY + 68, 160, "E", totalEnergy / energyMax, "#16a34a");
+    drawWilberforceRatePanel(ctx, panelX, panelY + 104, 160, state.v1, omega);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(14, 18, 220, 118);
+    ctx.strokeRect(14, 18, 220, 118);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "13px Arial";
+    ctx.fillText(`z = ${formatHudNumber(state.x1)}`, 24, 38);
+    ctx.fillText(`z' = ${formatHudNumber(state.v1)}`, 24, 58);
+    ctx.fillText(`\u03b8 = ${formatHudNumber(theta)}`, 24, 78);
+    ctx.fillText(`\u03b8' = \u03c9 = ${formatHudNumber(omega)}`, 24, 98);
+    ctx.fillText(`\u03b5 = ${formatHudNumber(model.wilberforceCoupling)}`, 24, 118);
+
+    ctx.fillStyle = "#475569";
+    ctx.font = "12px Arial";
+    ctx.fillText("energy periodically shifts between z and \u03b8", centerX - 112, height - 24);
+  }
+
+  function drawWilberforceRatePanel(ctx, x, y, width, verticalRate, angularRate) {
+    const ranges = wilberforceRateRanges(verticalRate, angularRate);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.72)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(x - 10, y - 14, width + 20, 68);
+    ctx.strokeRect(x - 10, y - 14, width + 20, 68);
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px Arial";
+    ctx.fillText("rate ranges", x, y + 2);
+    drawRateRangeGauge(ctx, x, y + 22, width, "z'", verticalRate, ranges.z.min, ranges.z.max, "#2563eb");
+    drawRateRangeGauge(ctx, x, y + 46, width, "\u03b8'=\u03c9", angularRate, ranges.omega.min, ranges.omega.max, "#7c3aed");
+  }
+
+  function drawHelicalSpring3D(ctx, x, y0, y1, coils, radiusX, radiusY, phase = 0) {
+    const length = y1 - y0;
+    const steps = Math.max(coils * 22, 2);
+    let previous = null;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const angle = phase + t * coils * Math.PI * 2;
+      const depth = Math.sin(angle);
+      const point = {
+        x: x + Math.cos(angle) * radiusX,
+        y: y0 + t * length + depth * radiusY * 0.36
+      };
+      if (previous) {
+        ctx.strokeStyle = depth > 0 ? "#0f172a" : "#94a3b8";
+        ctx.lineWidth = depth > 0 ? 2.4 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(previous.x, previous.y);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+      }
+      previous = point;
+    }
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y0 - 14);
+    ctx.lineTo(x, y0);
+    ctx.moveTo(x, y1);
+    ctx.lineTo(x, y1 + 18);
+    ctx.stroke();
+  }
+
+  function drawWilberforceBob3D(ctx, x, y, width, height, depth, theta) {
+    const topY = y - height * 0.26;
+    const bottomY = y + height * 0.26;
+    const bodyGradient = ctx.createLinearGradient(x - width / 2, topY, x + width / 2, bottomY);
+    bodyGradient.addColorStop(0, "#f8fafc");
+    bodyGradient.addColorStop(0.18, "#bae6fd");
+    bodyGradient.addColorStop(0.55, "#38bdf8");
+    bodyGradient.addColorStop(1, "#0369a1");
+
+    ctx.fillStyle = bodyGradient;
+    ctx.strokeStyle = "#075985";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x - width / 2, topY);
+    ctx.bezierCurveTo(x - width / 2, y, x - width / 2, bottomY, x, bottomY + depth * 0.38);
+    ctx.bezierCurveTo(x + width / 2, bottomY, x + width / 2, y, x + width / 2, topY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#e0f2fe";
+    ctx.strokeStyle = "#0369a1";
+    ctx.beginPath();
+    ctx.ellipse(x, topY, width / 2, depth, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(3, 105, 161, 0.22)";
+    ctx.beginPath();
+    ctx.ellipse(x, bottomY, width / 2, depth, 0, 0, Math.PI);
+    ctx.fill();
+
+    const markerX = x + Math.cos(theta) * width * 0.36;
+    const markerY = topY + Math.sin(theta) * depth * 0.72;
+    const markerFront = Math.sin(theta) >= 0;
+    ctx.strokeStyle = markerFront ? "#0f172a" : "rgba(15, 23, 42, 0.35)";
+    ctx.lineWidth = markerFront ? 2.8 : 1.7;
+    ctx.beginPath();
+    ctx.moveTo(x, topY);
+    ctx.lineTo(markerX, markerY);
+    ctx.stroke();
+    ctx.fillStyle = markerFront ? "#f97316" : "#fdba74";
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, markerFront ? 7 : 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawEnergyBar(ctx, x, y, width, label, fraction, color) {
+    const clamped = clamp(fraction, 0, 1);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillRect(x, y, width, 12);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, width * clamped, 12);
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, 12);
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px Arial";
+    ctx.fillText(label, x, y - 5);
+  }
+
+  function drawGyroscope(ctx, width, height, state, model) {
+    const pivotX = width * 0.38;
+    const pivotY = height * 0.63;
+    const theta = clamp(state.theta ?? state.y, 0.035, Math.PI - 0.035);
+    const phi = state.phi ?? 0;
+    const psi = state.psi ?? 0;
+    const rates = heavyTopRates(model, state);
+    const gravityTorque = model.gyroMass * model.gyroG * model.gyroD * Math.sin(theta);
+    const slowPrecession = model.spinAngularMomentum
+      ? model.gyroMass * model.gyroG * model.gyroD / model.spinAngularMomentum
+      : 0;
+    const visualScale = Math.min(width, height);
+    const orbitRx = visualScale * 0.35 * Math.sin(theta);
+    const orbitRy = orbitRx * 0.34;
+    const axisLength = visualScale * 0.43;
+    const tiltDepth = Math.cos(theta);
+    const rotorX = pivotX + Math.cos(phi) * orbitRx;
+    const rotorY = pivotY - axisLength * 0.52 * tiltDepth + Math.sin(phi) * orbitRy;
+    const rotorDepth = Math.sin(phi);
+    const armAngle = Math.atan2(rotorY - pivotY, rotorX - pivotX);
+    const diskAngle = armAngle + Math.PI / 2;
+    const diskRx = visualScale * 0.13;
+    const diskRy = visualScale * (0.038 + 0.02 * Math.abs(rotorDepth));
+
+    const baseGradient = ctx.createRadialGradient(pivotX, pivotY + 92, 4, pivotX, pivotY + 92, 140);
+    baseGradient.addColorStop(0, "rgba(15, 23, 42, 0.18)");
+    baseGradient.addColorStop(1, "rgba(15, 23, 42, 0)");
+    ctx.fillStyle = baseGradient;
+    ctx.beginPath();
+    ctx.ellipse(pivotX, pivotY + 92, 142, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.ellipse(pivotX, pivotY - axisLength * 0.52 * tiltDepth, orbitRx, orbitRy, 0, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "#e2e8f0";
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(pivotX, pivotY + 78, 84, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    drawGyroVerticalPost(ctx, pivotX, pivotY, axisLength, 1);
+
+    drawGyroArm3D(ctx, pivotX, pivotY, rotorX, rotorY, rotorDepth);
+
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawGyroRotor3D(ctx, rotorX, rotorY, diskRx, diskRy, diskAngle, gyroVisualSpin(psi, model, state, rates) - diskAngle, rotorDepth);
+    const postOcclusion = gyroPostOcclusion(rotorX, pivotX, diskRx, rotorDepth);
+    if (postOcclusion > 0.02) {
+      drawGyroVerticalPost(ctx, pivotX, pivotY, axisLength, 1, postOcclusion);
+    }
+
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.ellipse(pivotX, pivotY - axisLength * 0.52 * tiltDepth, orbitRx, orbitRy, 0, 0, Math.PI);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    drawVectorArrow(ctx, pivotX + 70, pivotY - 34, 0, 1, "#f97316", "\u03c4=Mg d", 34);
+    drawGyroAngleLabels(ctx, pivotX, pivotY, rotorX, rotorY, theta, phi, axisLength, tiltDepth, orbitRx, orbitRy);
+    drawGyroRatePanel(ctx, width, height, model, state, rates);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(14, 18, 300, 162);
+    ctx.strokeRect(14, 18, 300, 162);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "12px Arial";
+    ctx.fillText(`\u03b8 tilt = ${formatHudNumber(theta)}`, 24, 38);
+    ctx.fillText(`\u03c6 azimuth = ${formatHudNumber(phi)}`, 24, 58);
+    ctx.fillText(`\u03c8 spin angle = ${formatHudNumber(psi)}`, 24, 78);
+    ctx.fillText(`\u03b8' nutation rate = ${formatHudNumber(state.thetaDot ?? state.v)}`, 24, 100);
+    ctx.fillText(`\u03c6' precession rate = ${formatHudNumber(rates.phi)}`, 24, 120);
+    ctx.fillText(`\u03c8' spin rate = ${formatHudNumber(rates.psi)}`, 24, 140);
+    ctx.fillText(`\u03c4_g = ${formatHudNumber(gravityTorque)}  \u03a9_slow \u2248 ${formatHudNumber(slowPrecession)}`, 24, 160);
+    ctx.fillText(`E = ${formatHudNumber(metricParts(model, state).total)}`, 222, 140);
+  }
+
+  function drawGyroArm3D(ctx, pivotX, pivotY, rotorX, rotorY, depth) {
+    const armGradient = ctx.createLinearGradient(pivotX, pivotY, rotorX, rotorY);
+    armGradient.addColorStop(0, "#0f172a");
+    armGradient.addColorStop(0.5, "#334155");
+    armGradient.addColorStop(1, "#020617");
+    ctx.strokeStyle = armGradient;
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(rotorX, rotorY);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+  }
+
+  function gyroVisualSpin(psi, model, state, rates) {
+    const maxReadableSpinRate = 10;
+    const spinRange = gyroRateRanges(model, state, rates).psi;
+    const spinReference = Math.max(Math.abs(spinRange.min), Math.abs(spinRange.max), 1e-9);
+    const visualScale = Math.min(1, maxReadableSpinRate / spinReference);
+    return positiveAngle(psi * visualScale);
+  }
+
+  function gyroPostOcclusion(rotorX, pivotX, diskRx, rotorDepth) {
+    const behind = clamp(-rotorDepth * 2.8, 0, 1);
+    const alignment = clamp(1 - Math.abs(rotorX - pivotX) / Math.max(diskRx * 1.15, 1), 0, 1);
+    return behind * alignment;
+  }
+
+  function drawGyroVerticalPost(ctx, pivotX, pivotY, axisLength, emphasis = 1, opacity = 1) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    const postGradient = ctx.createLinearGradient(pivotX - 10, pivotY + 66, pivotX + 14, pivotY - axisLength);
+    postGradient.addColorStop(0, emphasis > 1 ? "#334155" : "#64748b");
+    postGradient.addColorStop(0.45, emphasis > 1 ? "#f8fafc" : "#cbd5e1");
+    postGradient.addColorStop(1, emphasis > 1 ? "#1f2937" : "#475569");
+    ctx.strokeStyle = postGradient;
+    ctx.lineWidth = 8 * emphasis;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY + 74);
+    ctx.lineTo(pivotX, pivotY - axisLength * 0.92);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.48)";
+    ctx.lineWidth = 2.2 * emphasis;
+    ctx.beginPath();
+    ctx.moveTo(pivotX - 2, pivotY + 56);
+    ctx.lineTo(pivotX - 2, pivotY - axisLength * 0.82);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+    ctx.restore();
+  }
+
+  function drawGyroAngleLabels(ctx, pivotX, pivotY, rotorX, rotorY, theta, phi, axisLength, tiltDepth, orbitRx, orbitRy) {
+    const verticalTop = pivotY - axisLength * 0.54;
+    const orbitY = pivotY - axisLength * 0.52 * tiltDepth;
+    const phiAngle = positiveAngle(phi);
+    const projectionX = pivotX + Math.cos(phiAngle) * orbitRx;
+    const projectionY = orbitY + Math.sin(phiAngle) * orbitRy;
+    ctx.strokeStyle = "rgba(37, 99, 235, 0.45)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, 48, -Math.PI / 2, -Math.PI / 2 + clamp(theta, 0, Math.PI) * 0.55, false);
+    ctx.stroke();
+    ctx.fillStyle = "#2563eb";
+    ctx.font = "13px Arial";
+    ctx.fillText("\u03b8", pivotX + 34, pivotY - 38);
+
+    ctx.strokeStyle = "rgba(124, 58, 237, 0.34)";
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pivotX, orbitY);
+    ctx.lineTo(pivotX + Math.max(orbitRx, 28), orbitY);
+    ctx.moveTo(pivotX, orbitY);
+    ctx.lineTo(projectionX, projectionY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#7c3aed";
+    ctx.beginPath();
+    ctx.arc(projectionX, projectionY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#7c3aed";
+    ctx.lineWidth = 1.8;
+    drawEllipseAngleArc(ctx, pivotX, orbitY, Math.max(orbitRx * 0.36, 24), Math.max(orbitRy * 0.36, 9), 0, phiAngle);
+    ctx.fillStyle = "#7c3aed";
+    const phiLabelX = pivotX + Math.cos(phiAngle * 0.5) * Math.max(orbitRx * 0.44, 34);
+    const phiLabelY = orbitY + Math.sin(phiAngle * 0.5) * Math.max(orbitRy * 0.44, 12);
+    ctx.fillText("\u03c6", phiLabelX + 6, phiLabelY - 4);
+
+    ctx.strokeStyle = "rgba(22, 163, 74, 0.4)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(rotorX, rotorY);
+    ctx.stroke();
+    ctx.fillStyle = "#16a34a";
+    ctx.fillText("body axis", (pivotX + rotorX) / 2 + 8, (pivotY + rotorY) / 2 - 8);
+    ctx.fillStyle = "#64748b";
+    ctx.fillText("vertical", pivotX + 8, verticalTop + 18);
+  }
+
+  function drawEllipseAngleArc(ctx, centerX, centerY, rx, ry, startAngle, endAngle) {
+    const steps = Math.max(8, Math.ceil(Math.abs(endAngle - startAngle) / 0.08));
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const fraction = i / steps;
+      const angle = startAngle + (endAngle - startAngle) * fraction;
+      const x = centerX + Math.cos(angle) * rx;
+      const y = centerY + Math.sin(angle) * ry;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function drawRateCircularArrow(ctx, centerX, centerY, radius, centerAngle, value, range, color, label, maxSpan = 1.25) {
+    const scale = Math.abs(normalizedRateValue(value, range));
+    const span = maxSpan * scale;
+    if (span < 0.02) {
+      ctx.fillStyle = color;
+      ctx.font = "12px Arial";
+      ctx.fillText(label, centerX + radius + 6, centerY);
+      return;
+    }
+    const signedSpan = Math.sign(value || 1) * span;
+    drawCircularArrow(ctx, centerX, centerY, radius, centerAngle - signedSpan * 0.5, centerAngle + signedSpan * 0.5, color, label);
+  }
+
+  function drawGyroRatePanel(ctx, width, height, model, state, rates) {
+    const panelX = width * 0.68;
+    const panelY = height * 0.58;
+    const panelW = 206;
+    const panelH = 120;
+    const ranges = gyroRateRanges(model, state, rates);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.72)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.fillStyle = "#334155";
+    ctx.font = "12px Arial";
+    ctx.fillText("angular rate ranges", panelX + 10, panelY + 18);
+    const thetaDot = state.thetaDot ?? state.v ?? 0;
+    drawRateRangeGauge(ctx, panelX + 10, panelY + 38, panelW - 20, "\u03b8'", thetaDot, ranges.thetaDot.min, ranges.thetaDot.max, "#dc2626");
+    drawRateRangeGauge(ctx, panelX + 10, panelY + 68, panelW - 20, "\u03c6'", rates.phi, ranges.phi.min, ranges.phi.max, "#2563eb");
+    drawRateRangeGauge(ctx, panelX + 10, panelY + 98, panelW - 20, "\u03c8'", rates.psi, ranges.psi.min, ranges.psi.max, "#7c3aed");
+  }
+
+  function wilberforceRateRanges(verticalRate, angularRate) {
+    if (currentResult?._wilberforceRateRanges) return currentResult._wilberforceRateRanges;
+    const points = currentResult?.points || [];
+    const zValues = points.map(point => point.v1).filter(Number.isFinite);
+    const omegaValues = points.map(point => point.v2).filter(Number.isFinite);
+    zValues.push(verticalRate);
+    omegaValues.push(angularRate);
+    const ranges = {
+      z: paddedValueRange(zValues, 1),
+      omega: paddedValueRange(omegaValues, 1)
+    };
+    if (currentResult) currentResult._wilberforceRateRanges = ranges;
+    return ranges;
+  }
+
+  function gyroRateRanges(model, state, rates) {
+    if (currentResult?._gyroRateRanges) return currentResult._gyroRateRanges;
+    const points = currentResult?.points || [];
+    const thetaDotValues = [];
+    const phiDotValues = [];
+    const psiDotValues = [];
+    points.forEach(point => {
+      const pointRates = heavyTopRates(model, point);
+      thetaDotValues.push(point.thetaDot ?? point.v ?? 0);
+      phiDotValues.push(pointRates.phi);
+      psiDotValues.push(pointRates.psi);
+    });
+    thetaDotValues.push(state.thetaDot ?? state.v ?? 0);
+    phiDotValues.push(rates.phi);
+    psiDotValues.push(rates.psi);
+    const ranges = {
+      thetaDot: paddedValueRange(thetaDotValues, 1),
+      phi: paddedValueRange(phiDotValues, 1),
+      psi: paddedValueRange(psiDotValues, 1)
+    };
+    if (currentResult) currentResult._gyroRateRanges = ranges;
+    return ranges;
+  }
+
+  function paddedValueRange(values, fallbackSpan = 1) {
+    const finiteValues = values.filter(Number.isFinite);
+    const minValue = finiteValues.length ? Math.min(...finiteValues) : -fallbackSpan;
+    const maxValue = finiteValues.length ? Math.max(...finiteValues) : fallbackSpan;
+    const span = maxValue - minValue;
+    const padding = span > 1e-9 ? span * 0.08 : Math.max(Math.abs(maxValue), fallbackSpan) * 0.08;
+    return {
+      min: minValue - padding,
+      max: maxValue + padding
+    };
+  }
+
+  function normalizedRateValue(value, range) {
+    const reference = Math.max(Math.abs(range?.min ?? 0), Math.abs(range?.max ?? 0), 1e-9);
+    return clamp(value / reference, -1, 1);
+  }
+
+  function drawRateRangeGauge(ctx, x, y, width, label, value, minValue, maxValue, color) {
+    const labelW = 38;
+    const barX = x + labelW;
+    const barW = width - labelW - 44;
+    const span = Math.max(maxValue - minValue, 1e-9);
+    const fraction = clamp((value - minValue) / span, 0, 1);
+    const markerX = barX + fraction * barW;
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "11px Arial";
+    ctx.fillText(label, x, y + 4);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(barX, y);
+    ctx.lineTo(barX + barW, y);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(markerX, y - 6);
+    ctx.lineTo(markerX, y + 6);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(markerX, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#64748b";
+    ctx.font = "10px Arial";
+    ctx.fillText(formatHudNumber(minValue), barX - 2, y + 14);
+    ctx.fillText(formatHudNumber(maxValue), barX + barW - 18, y + 14);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "11px Arial";
+    ctx.fillText(formatHudNumber(value), barX + barW + 8, y + 4);
+  }
+
+  function drawSignedRateGauge(ctx, x, y, width, label, value, reference, color) {
+    const mid = x + width * 0.5;
+    const half = width * 0.34;
+    const scaled = clamp(value / Math.max(reference, 1e-6), -1, 1);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mid - half, y);
+    ctx.lineTo(mid + half, y);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(mid, y);
+    ctx.lineTo(mid + scaled * half, y);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(mid + scaled * half, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "12px Arial";
+    ctx.fillText(label, x, y + 4);
+    ctx.fillText(formatHudNumber(value), mid + half + 8, y + 4);
+  }
+
+  function drawGyroRotor3D(ctx, x, y, rx, ry, angle, spin, depth) {
+    const shadowAlpha = 0.12 + 0.08 * Math.max(depth, 0);
+    ctx.fillStyle = `rgba(15, 23, 42, ${shadowAlpha})`;
+    ctx.beginPath();
+    ctx.ellipse(x + 10, y + 34, rx * 0.9, ry * 0.75, angle, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    const rimGradient = ctx.createLinearGradient(-rx, -ry, rx, ry);
+    rimGradient.addColorStop(0, "#f8fafc");
+    rimGradient.addColorStop(0.25, "#bae6fd");
+    rimGradient.addColorStop(0.62, "#38bdf8");
+    rimGradient.addColorStop(1, "#075985");
+
+    ctx.fillStyle = rimGradient;
+    ctx.strokeStyle = "#075985";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+    ctx.beginPath();
+    ctx.ellipse(-rx * 0.22, -ry * 0.36, rx * 0.42, ry * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.18)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const a = i * Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a) * rx * 0.88, Math.sin(a) * ry * 0.88);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2.4;
+    const markerAngle = spin;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(markerAngle) * rx * 0.9, Math.sin(markerAngle) * ry * 0.9);
+    ctx.stroke();
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "12px Arial";
+    ctx.fillText("\u03c8", Math.cos(markerAngle) * rx * 0.72 + 4, Math.sin(markerAngle) * ry * 0.72 - 4);
+
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawOscillator(ctx, width, height, state, model, options = {}) {
@@ -3152,6 +5369,127 @@
     drawParticleCanvasHud(ctx, width, height, state, model, bounds);
   }
 
+  function drawRigidDipole(ctx, width, height, state, model) {
+    const bounds = particleCanvasBounds();
+    const margin = 46;
+    const plotLeft = margin;
+    const plotRight = width - margin;
+    const plotTop = 46;
+    const plotBottom = height - 42;
+    const scaleX = (plotRight - plotLeft) / Math.max(bounds.maxX - bounds.minX, 1e-6);
+    const scaleY = (plotBottom - plotTop) / Math.max(bounds.maxY - bounds.minY, 1e-6);
+    const scale = Math.min(scaleX, scaleY);
+    const offsetX = (plotLeft + plotRight) / 2 - (bounds.minX + bounds.maxX) * scale / 2;
+    const offsetY = (plotTop + plotBottom) / 2 + (bounds.minY + bounds.maxY) * scale / 2;
+    const map = point => ({
+      x: offsetX + point.x * scale,
+      y: offsetY - point.yPos * scale
+    });
+    const points = currentResult.points;
+    const currentIndex = points.findIndex(point => point.t >= state.t);
+    const visibleEnd = currentIndex < 0 ? points.length : currentIndex + 1;
+    const center = map(state);
+    const half = model.dipoleDistance * 0.5 * scale;
+    const ux = Math.cos(state.theta);
+    const uy = Math.sin(state.theta);
+    const plus = { x: center.x + ux * half, y: center.y - uy * half };
+    const minus = { x: center.x - ux * half, y: center.y + uy * half };
+    const diagnostics = rigidDipoleDiagnostics(model, state);
+    const torqueScale = Math.max(Math.abs(model.charge * model.dipoleDistance * Math.hypot(model.electricEx, model.electricEy)), 1e-6);
+
+    drawParticleField(ctx, width, height, model, state);
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+    drawParticleAxes(ctx, bounds, map, plotLeft, plotRight, plotTop, plotBottom);
+
+    ctx.strokeStyle = "rgba(37, 99, 235, 0.26)";
+    ctx.lineWidth = 2;
+    drawMappedPath(ctx, points, map);
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 3;
+    drawMappedPath(ctx, points.slice(0, Math.max(visibleEnd, 1)), map);
+
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(minus.x, minus.y);
+    ctx.lineTo(plus.x, plus.y);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    drawDipoleCharge(ctx, plus.x, plus.y, "+", "#dc2626");
+    drawDipoleCharge(ctx, minus.x, minus.y, "-", "#2563eb");
+    drawVectorArrow(ctx, center.x, center.y, state.vx, -state.vy, "#334155", "v", 24);
+    if (Math.abs(state.omega) > 0.03) {
+      const omegaSign = Math.sign(state.omega);
+      const omegaSpan = clamp(Math.abs(state.omega) / 2, 0.18, 0.95);
+      drawCircularArrow(ctx, center.x, center.y, Math.max(half * 0.42, 18), state.theta - omegaSign * omegaSpan * 0.5, state.theta + omegaSign * omegaSpan * 0.5, "#7c3aed", "\u03c9");
+    } else {
+      ctx.fillStyle = "#7c3aed";
+      ctx.font = "12px Arial";
+      ctx.fillText("\u03c9\u22480", center.x + Math.max(half * 0.32, 18), center.y - 12);
+    }
+    drawTorqueGauge(ctx, width - 114, height - 82, diagnostics.torque / torqueScale);
+
+    const hudX = 14;
+    const hudY = 14;
+    const hudW = 274;
+    const hudH = 122;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(hudX, hudY, hudW, hudH);
+    ctx.strokeRect(hudX, hudY, hudW, hudH);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "left";
+    const left = hudX + 10;
+    const right = hudX + 146;
+    const rows = [
+      [`x=${formatHudNumber(state.x)}`, `y=${formatHudNumber(state.yPos)}`],
+      [`vx=${formatHudNumber(state.vx)}`, `vy=${formatHudNumber(state.vy)}`],
+      [`\u03b8=${formatHudNumber(state.theta)}`, `\u03c9=${formatHudNumber(state.omega)}`],
+      [`\u03c4=${formatHudNumber(diagnostics.torque)}`, `Bz=${formatHudNumber(model.magneticB)}`],
+      [`Ex=${formatHudNumber(model.electricEx)}`, `Ey=${formatHudNumber(model.electricEy)}`]
+    ];
+    rows.forEach((row, index) => {
+      const y = hudY + 24 + index * 20;
+      ctx.fillText(row[0], left, y);
+      ctx.fillText(row[1], right, y);
+    });
+  }
+
+  function drawDipoleCharge(ctx, x, y, label, color) {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x, y + 5);
+    ctx.textAlign = "start";
+  }
+
+  function drawTorqueGauge(ctx, x, y, normalizedTorque) {
+    const value = clamp(normalizedTorque, -1, 1);
+    ctx.fillStyle = "rgba(255,255,255,0.86)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(x - 42, y - 42, 84, 84);
+    ctx.strokeRect(x - 42, y - 42, 84, 84);
+    drawCircularArrow(ctx, x, y, 25, -Math.PI / 2, -Math.PI / 2 + value * Math.PI * 1.35, "#f97316", "\u03c4");
+  }
+
   function drawParticleAxes(ctx, bounds, map, left, right, top, bottom) {
     const xTicks = niceTicks(bounds.minX, bounds.maxX, 5);
     const yTicks = niceTicks(bounds.minY, bounds.maxY, 4);
@@ -3242,7 +5580,7 @@
       ctx.fillRect(0, height - 34, width, 34);
       return;
     }
-    if (model.type === "chargedParticle") {
+    if (model.type === "chargedParticle" || model.type === "rigidDipole") {
       const ex = model.params.ex || 0;
       const ey = model.params.ey || 0;
       const bz = model.params.bz || 0;
@@ -3364,8 +5702,11 @@
     const maxX = Math.max(...x);
     const minY = Math.min(...y);
     const maxY = Math.max(...y);
-    const xPad = Math.max((maxX - minX) * 0.08, 0.5);
-    const yPad = Math.max((maxY - minY) * 0.08, 0.5);
+    const objectPad = currentModel?.type === "rigidDipole"
+      ? Math.max(currentModel.dipoleDistance * 0.65, 0.5)
+      : 0.5;
+    const xPad = Math.max((maxX - minX) * 0.08, objectPad);
+    const yPad = Math.max((maxY - minY) * 0.08, objectPad);
     return {
       minX: minX - xPad,
       maxX: maxX + xPad,
@@ -4606,7 +6947,69 @@
       return { kinetic: inductor, potential: capacitor, total: inductor + capacitor };
     }
 
-    if (model.mode === "particle2d" || model.mode === "coupled") {
+    if (model.type === "rotatingDisk") {
+      const inertia = model.inertiaAt(point.t);
+      const angularMomentum = inertia * point.v;
+      const energy = 0.5 * inertia * point.v * point.v;
+      return { kinetic: energy, potential: angularMomentum, total: inertia };
+    }
+
+    if (model.type === "spool") {
+      const translational = 0.5 * model.mass * point.v * point.v;
+      const inertia = model.spoolInertiaK * model.mass * model.spoolRadius * model.spoolRadius;
+      const rotational = 0.5 * inertia * (point.omega || point.v / model.spoolRadius) ** 2;
+      return { kinetic: translational, potential: rotational, total: translational + rotational };
+    }
+
+    if (model.type === "wilberforce") {
+      const vertical = 0.5 * model.wilberforceMass * point.v1 * point.v1
+        + 0.5 * model.wilberforceKz * point.x1 * point.x1;
+      const torsional = 0.5 * model.wilberforceI * point.v2 * point.v2
+        + 0.5 * model.wilberforceKt * point.x2 * point.x2;
+      const coupling = model.wilberforceCoupling * point.x1 * point.x2;
+      return {
+        kinetic: vertical,
+        potential: torsional,
+        total: vertical + torsional + coupling
+      };
+    }
+
+    if (model.type === "gyroscope") {
+      const theta = clamp(point.theta ?? point.y, 0.035, Math.PI - 0.035);
+      const thetaDot = point.thetaDot ?? point.v ?? 0;
+      const rates = heavyTopRates(model, {
+        theta,
+        thetaDot,
+        phi: point.phi ?? 0,
+        psi: point.psi ?? 0
+      });
+      const sinTheta = Math.sin(theta);
+      const kinetic = 0.5 * model.gyroI1 * (thetaDot * thetaDot + rates.phi * rates.phi * sinTheta * sinTheta)
+        + 0.5 * model.gyroI3 * rates.spinRate * rates.spinRate;
+      const potential = model.gyroMass * model.gyroG * model.gyroD * Math.cos(theta);
+      return {
+        kinetic,
+        potential,
+        total: kinetic + potential
+      };
+    }
+
+    if (model.type === "rigidDipole") {
+      const theta = point.theta ?? point.y ?? 0;
+      const omega = point.omega ?? point.v ?? 0;
+      const translational = 0.5 * model.mass * ((point.vx || 0) * (point.vx || 0) + (point.vy || 0) * (point.vy || 0));
+      const rotational = 0.5 * model.dipoleInertia * omega * omega;
+      const potential = -model.charge * model.dipoleDistance
+        * (Math.cos(theta) * model.electricEx + Math.sin(theta) * model.electricEy);
+      return {
+        kinetic: translational,
+        rotational,
+        potential,
+        total: translational + rotational + potential
+      };
+    }
+
+    if (model.mode === "particle2d" || model.mode === "coupled" || model.mode === "wilberforce") {
       const specs = energyComponentSpecs(model);
       const kinetic = specs
         .filter(spec => spec.key.startsWith("kinetic"))
@@ -4658,8 +7061,20 @@
       updateParticleCursors(t, state);
       return;
     }
-    if (currentModel.mode === "coupled") {
+    if (currentModel.mode === "rigidDipole") {
+      updateRigidDipoleCursors(t, state);
+      return;
+    }
+    if (currentModel.mode === "rollingBodies") {
+      updateRollingBodiesCursors(t, state);
+      return;
+    }
+    if (currentModel.mode === "coupled" || currentModel.mode === "wilberforce") {
       updateCoupledCursors(t, state);
+      return;
+    }
+    if (currentModel.mode === "heavyTop") {
+      updateHeavyTopCursors(t, state);
       return;
     }
     const history = getHistoryUntil(t);
@@ -4784,6 +7199,79 @@
     updateExtraEnergyCursor(t, history, currentModel);
   }
 
+  function updateRigidDipoleCursors(t, state) {
+    const history = getHistoryUntil(t);
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsEnergyPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsExtraPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsTimePlot", {
+      x: [history.t, history.t, history.t],
+      y: [history.theta, history.omega, history.torque]
+    }, [3, 4, 5]);
+
+    const projectionKey = currentModel.phaseProjection || defaultPhaseProjection(currentModel.type);
+    const projection = projectionTrace(currentModel, history.points, projectionKey);
+    const currentProjection = projectionPoint(currentModel, state, projectionKey);
+    restyleIfReady("physicsPhasePlot", {
+      x: [projection.x],
+      y: [projection.y]
+    }, [1]);
+    restyleIfReady("physicsPhasePlot", {
+      x: [[currentProjection.x]],
+      y: [[currentProjection.y]]
+    }, [2]);
+
+    restyleIfReady("physicsEnergyPlot", {
+      x: [history.t, history.t, history.t, history.t],
+      y: [history.kinetic, history.rotational, history.potential, history.total]
+    }, [4, 5, 6, 7]);
+    restyleIfReady("physicsExtraPlot", {
+      x: [history.x],
+      y: [history.yPos]
+    }, [1]);
+    restyleIfReady("physicsExtraPlot", {
+      x: [[state.x]],
+      y: [[state.yPos]]
+    }, [2]);
+  }
+
+  function updateRollingBodiesCursors(t, state) {
+    const history = getHistoryUntil(t);
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsPhasePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsExtraPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+
+    const positions = [];
+    const velocities = [];
+    const projectionX = [];
+    const projectionY = [];
+    const projectionSpec = rollingProjectionSpec(currentModel.phaseProjection || defaultPhaseProjection(currentModel.type));
+    currentModel.bodies.forEach(body => {
+      const cap = capitalizeKey(body.key);
+      positions.push(history.points.map(point => Math.min(point[`s${cap}`], currentModel.rollingLength)));
+      velocities.push(history.points.map(point => point[`v${cap}`]));
+      projectionX.push(history.points.map(point => rollingProjectionValue(point, body, projectionSpec.xKey)));
+      projectionY.push(history.points.map(point => rollingProjectionValue(point, body, projectionSpec.yKey)));
+    });
+
+    restyleIfReady("physicsTimePlot", {
+      x: currentModel.bodies.map(() => history.t),
+      y: positions
+    }, [3, 4, 5]);
+    restyleIfReady("physicsPhasePlot", {
+      x: currentModel.bodies.map(() => history.t),
+      y: velocities
+    }, [3, 4, 5]);
+    restyleIfReady("physicsEnergyPlot", {
+      x: projectionX,
+      y: projectionY
+    }, [3, 4, 5]);
+  }
+
   function updateCoupledCursors(t, state) {
     const history = getHistoryUntil(t);
     const timeShape = timeCursorShape(t);
@@ -4822,6 +7310,40 @@
     updateExtraEnergyCursor(t, history, currentModel);
   }
 
+  function updateHeavyTopCursors(t, state) {
+    const history = getHistoryUntil(t);
+    const timeShape = timeCursorShape(t);
+    const timeAnnotation = timeCursorAnnotation(t);
+    relayoutIfReady("physicsTimePlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsEnergyPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    relayoutIfReady("physicsExtraPlot", { shapes: [timeShape], annotations: [timeAnnotation] });
+    restyleIfReady("physicsTimePlot", {
+      x: [history.t, history.t, history.t, history.t],
+      y: [history.theta, history.thetaDot, history.phi, history.phiDot]
+    }, [4, 5, 6, 7]);
+
+    const projectionKey = currentModel.phaseProjection || defaultPhaseProjection(currentModel.type);
+    const projection = projectionTrace(currentModel, history.points, projectionKey);
+    const currentProjection = projectionPoint(currentModel, state, projectionKey);
+    restyleIfReady("physicsPhasePlot", {
+      x: [projection.x],
+      y: [projection.y]
+    }, [1]);
+    restyleIfReady("physicsPhasePlot", {
+      x: [[currentProjection.x]],
+      y: [[currentProjection.y]]
+    }, [2]);
+
+    restyleIfReady("physicsEnergyPlot", {
+      x: [history.t, history.t, history.t, history.t],
+      y: [history.lz, history.l3, history.lPerp, history.lTotal]
+    }, [4, 5, 6, 7]);
+    restyleIfReady("physicsExtraPlot", {
+      x: [history.t, history.t, history.t],
+      y: [history.kinetic, history.potential, history.total]
+    }, [3, 4, 5]);
+  }
+
   function updateExtraEnergyCursor(t, history, model) {
     const specs = energyComponentSpecs(model);
     if (!specs.length) return;
@@ -4842,6 +7364,9 @@
       visiblePoints.push(state);
     }
     const metrics = visiblePoints.map(point => metricParts(model, point));
+    const angular = model?.mode === "heavyTop"
+      ? visiblePoints.map(point => heavyTopAngularMomentum(model, point))
+      : [];
     return {
       points: visiblePoints,
       t: visiblePoints.map(point => point.t),
@@ -4855,7 +7380,18 @@
       v1: visiblePoints.map(point => point.v1),
       x2: visiblePoints.map(point => point.x2),
       v2: visiblePoints.map(point => point.v2),
+      theta: visiblePoints.map(point => point.theta),
+      omega: visiblePoints.map(point => point.omega),
+      torque: visiblePoints.map(point => point.torque),
+      thetaDot: visiblePoints.map(point => point.thetaDot),
+      phi: visiblePoints.map(point => point.phi),
+      phiDot: visiblePoints.map(point => point.phiDot),
+      lz: angular.map(item => item.lz),
+      l3: angular.map(item => item.l3),
+      lPerp: angular.map(item => item.lPerp),
+      lTotal: angular.map(item => item.lTotal),
       kinetic: metrics.map(item => item.kinetic),
+      rotational: metrics.map(item => item.rotational),
       potential: metrics.map(item => item.potential),
       total: metrics.map(item => item.total)
     };
@@ -4956,6 +7492,12 @@
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
+  }
+
+  function positiveAngle(value) {
+    if (!isFinite(value)) return 0;
+    const fullTurn = Math.PI * 2;
+    return ((value % fullTurn) + fullTurn) % fullTurn;
   }
 
   function finiteOr(value, fallback) {
