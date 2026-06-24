@@ -29,8 +29,10 @@ Current implementation:
 - Three.js/WebGL viewport with OrbitControls: rotate, zoom, pan.
 - Procedural star/corona and planet textures.
 - Select body by click or dropdown.
-- Edit visual parameters: mass, radius, orbit, phase, inclination.
-- Add planet/star and reset preset.
+- Edit visual parameters per selected body: mass, radius, orbit, eccentricity, phase, inclination, spin, spin tilt.
+- Add planet/star, remove selected body, and reset preset.
+- Shows a control hint, barycenter marker, selection ring, and simple trails.
+- View frame can be inertial, barycenter-centered, or selected-body-centered.
 - Binary-star and circumbinary visual presets.
 - Still only a visual Kepler-style scaffold, not real N-body physics yet.
 
@@ -41,6 +43,7 @@ Core target:
 - ODE: `r_i' = v_i`, `v_i' = sum_j F_ij / m_i`.
 - Diagnostics: energy, momentum, barycenter, angular momentum `L`, orbital elements, energy drift.
 - Main integrator: leapfrog / velocity Verlet. Keep RK4 for comparison.
+- Long runs should be integrated incrementally in chunks, with buffered/decimated history for trails and plots, not precomputed as one huge array.
 
 Roadmap:
 

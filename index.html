@@ -804,16 +804,6 @@ window.MathJax = {
     </div>
 
     <div class="row inline-inputs">
-      <label>M <input id="celestialMassA" type="number" step="0.1" value="10"></label>
-      <label>m <input id="celestialMassB" type="number" step="0.01" value="0.1"></label>
-    </div>
-
-    <div class="row inline-inputs">
-      <label>a <input id="celestialSemiMajor" type="number" step="0.1" value="3"></label>
-      <label>e <input id="celestialEccentricity" type="number" min="0" max="1.2" step="0.05" value="0.45"></label>
-    </div>
-
-    <div class="row inline-inputs">
       <label>time span <input id="celestialTimeSpan" type="number" step="1" value="30"></label>
       <label>speed <input id="celestialSpeed" type="number" step="0.1" value="1"></label>
     </div>
@@ -821,18 +811,31 @@ window.MathJax = {
     <label>selected object</label>
     <select id="celestialBodySelect"></select>
 
+    <label>view frame</label>
+    <select id="celestialViewFrame">
+      <option value="inertial">Inertial frame</option>
+      <option value="barycenter">Barycenter frame</option>
+      <option value="selected">Selected body frame</option>
+    </select>
+
     <div class="celestial-button-row">
       <button id="celestialAddPlanetBtn" type="button">Add planet</button>
       <button id="celestialAddStarBtn" type="button">Add star</button>
+      <button id="celestialRemoveBodyBtn" type="button">Remove</button>
       <button id="celestialResetPresetBtn" type="button">Reset preset</button>
     </div>
+
+    <div id="celestialBodySummary" class="celestial-body-summary">selected: -</div>
 
     <div class="row inline-inputs celestial-body-editor">
       <label>mass <input id="celestialBodyMass" type="number" step="0.1" value="1"></label>
       <label>radius <input id="celestialBodyRadius" type="number" step="0.01" value="0.2"></label>
       <label>orbit a <input id="celestialBodyOrbit" type="number" step="0.1" value="3"></label>
+      <label>e <input id="celestialBodyEccentricity" type="number" min="0" max="0.95" step="0.05" value="0"></label>
       <label>phase <input id="celestialBodyPhase" type="number" step="0.05" value="0"></label>
       <label>inclination <input id="celestialBodyInclination" type="number" step="1" value="0"></label>
+      <label>spin <input id="celestialBodySpin" type="number" step="0.1" value="1"></label>
+      <label>spin tilt <input id="celestialBodySpinTilt" type="number" step="1" value="0"></label>
     </div>
 
     <div class="celestial-metrics">
@@ -845,6 +848,7 @@ window.MathJax = {
 
   <div class="panel celestial-output-panel">
     <div class="celestial-stage">
+      <div class="celestial-help">drag rotate · wheel zoom · right-drag pan · click select · violet marker = barycenter</div>
       <canvas id="celestialCanvas" width="1100" height="520"></canvas>
     </div>
     <div class="celestial-animation-controls">

@@ -695,7 +695,7 @@ input[type="range"] {
 
 .celestial-button-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 10px 0;
 }
@@ -714,6 +714,18 @@ input[type="range"] {
 
 .celestial-button-row button:hover {
   background: #f1f5f9;
+}
+
+.celestial-body-summary {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .celestial-body-editor {
@@ -738,6 +750,22 @@ input[type="range"] {
   border-radius: 12px;
   overflow: hidden;
   background: #0f172a;
+}
+
+.celestial-help {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  max-width: calc(100% - 20px);
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: none;
 }
 
 .celestial-stage canvas {
@@ -1160,6 +1188,10 @@ input[type="range"] {
 
   .celestial-controls-panel .celestial-body-editor input {
     width: 100px;
+  }
+
+  .celestial-button-row {
+    grid-template-columns: 1fr;
   }
 
   .methods-plot {

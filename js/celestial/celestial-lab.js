@@ -14,14 +14,20 @@ function setupCelestialLab() {
     timeSpan: document.getElementById("celestialTimeSpan"),
     speed: document.getElementById("celestialSpeed"),
     bodySelect: document.getElementById("celestialBodySelect"),
+    viewFrame: document.getElementById("celestialViewFrame"),
     addPlanetBtn: document.getElementById("celestialAddPlanetBtn"),
     addStarBtn: document.getElementById("celestialAddStarBtn"),
+    removeBodyBtn: document.getElementById("celestialRemoveBodyBtn"),
     resetPresetBtn: document.getElementById("celestialResetPresetBtn"),
+    bodySummary: document.getElementById("celestialBodySummary"),
     bodyMass: document.getElementById("celestialBodyMass"),
     bodyRadius: document.getElementById("celestialBodyRadius"),
     bodyOrbit: document.getElementById("celestialBodyOrbit"),
+    bodyEccentricity: document.getElementById("celestialBodyEccentricity"),
     bodyPhase: document.getElementById("celestialBodyPhase"),
     bodyInclination: document.getElementById("celestialBodyInclination"),
+    bodySpin: document.getElementById("celestialBodySpin"),
+    bodySpinTilt: document.getElementById("celestialBodySpinTilt"),
     slider: document.getElementById("celestialTimeSlider"),
     playBtn: document.getElementById("celestialPlayBtn"),
     timeLabel: document.getElementById("celestialTimeLabel"),
@@ -42,7 +48,8 @@ function setupCelestialLab() {
   let syncingBodyEditor = false;
 
   function numberValue(input, fallback) {
-    const value = Number(input && input.value);
+    if (!input || input.value === "" || input.value == null) return fallback;
+    const value = Number(input.value);
     return Number.isFinite(value) ? value : fallback;
   }
 
@@ -70,6 +77,8 @@ function setupCelestialLab() {
       phase: options.phase ?? 0,
       inclination: options.inclination ?? 0,
       eccentricity: options.eccentricity,
+      spin: options.spin ?? (type === "star" ? 0.35 : 1),
+      spinTilt: options.spinTilt ?? 0,
       texture: options.texture ?? (type === "star" ? "star" : "jupiter")
     };
   }
@@ -200,9 +209,25 @@ function setupCelestialLab() {
     controls.bodyMass.value = body.mass;
     controls.bodyRadius.value = body.radius;
     controls.bodyOrbit.value = body.orbit;
+    controls.bodyEccentricity.value = body.eccentricity ?? 0;
     controls.bodyPhase.value = body.phase;
     controls.bodyInclination.value = body.inclination;
+    controls.bodySpin.value = body.spin;
+    controls.bodySpinTilt.value = body.spinTilt;
     syncingBodyEditor = false;
+    updateBodySummary();
+  }
+
+  function updateBodySummary() {
+    const body = selectedBody();
+    if (!controls.bodySummary || !body) return;
+    controls.bodySummary.textContent = [
+      `selected: ${body.name}`,
+      `type: ${body.type}`,
+      `m=${Number(body.mass).toFixed(3)}`,
+      `R=${Number(body.radius).toFixed(3)}`,
+      `spin=${Number(body.spin).toFixed(2)}`
+    ].join(" · ");
   }
 
   function updateSelectedBodyFromEditor() {
@@ -212,10 +237,13 @@ function setupCelestialLab() {
     body.mass = Math.max(0.001, numberValue(controls.bodyMass, body.mass));
     body.radius = Math.max(0.03, numberValue(controls.bodyRadius, body.radius));
     body.orbit = Math.max(0, numberValue(controls.bodyOrbit, body.orbit));
+    body.eccentricity = Math.min(0.95, Math.max(0, numberValue(controls.bodyEccentricity, body.eccentricity ?? 0)));
     body.phase = numberValue(controls.bodyPhase, body.phase);
     body.inclination = numberValue(controls.bodyInclination, body.inclination);
-    if (body.type === "planet") body.eccentricity = body.eccentricity ?? readModel().eccentricity;
+    body.spin = numberValue(controls.bodySpin, body.spin);
+    body.spinTilt = numberValue(controls.bodySpinTilt, body.spinTilt);
     if (three) three.bodyMeshSignature = "";
+    updateBodySummary();
   }
 
   function addBody(type) {
@@ -232,6 +260,21 @@ function setupCelestialLab() {
     });
     bodies.push(body);
     selectedBodyId = body.id;
+    syncBodySelect();
+    syncBodyEditor();
+    if (three) {
+      three.bodyMeshSignature = "";
+      rebuildBodyMeshes();
+    }
+    refresh();
+  }
+
+  function removeSelectedBody() {
+    if (bodies.length <= 1) return;
+    const index = bodies.findIndex((body) => body.id === selectedBodyId);
+    if (index < 0) return;
+    bodies.splice(index, 1);
+    selectedBodyId = bodies[Math.min(index, bodies.length - 1)]?.id || bodies[0]?.id || null;
     syncBodySelect();
     syncBodyEditor();
     if (three) {
@@ -441,6 +484,20 @@ function setupCelestialLab() {
     return new THREE.Line(geometry, material);
   }
 
+  function makeBodyOrbitLine(body, model) {
+    const points = [];
+    for (let i = 0; i <= 240; i += 1) {
+      points.push(bodyPosition(body, model, i / 240));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: body.type === "star" ? 0xfbbf24 : (body.texture === "mars" ? 0xf97316 : 0x60a5fa),
+      transparent: true,
+      opacity: body.type === "star" ? 0.32 : 0.7
+    });
+    return new THREE.Line(geometry, material);
+  }
+
   function bodyPosition(body, model, progress) {
     if (body.orbit <= 0) return new THREE.Vector3(0, 0, 0);
     const e = body.type === "planet" ? Math.min(body.eccentricity ?? model.eccentricity, 0.88) : 0;
@@ -510,6 +567,18 @@ function setupCelestialLab() {
       group.add(glow);
     }
 
+    const pickSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(Math.max(body.radius * 2.2, 0.18), 24, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false
+      })
+    );
+    pickSphere.userData.bodyId = body.id;
+    group.add(pickSphere);
+
     return group;
   }
 
@@ -520,19 +589,41 @@ function setupCelestialLab() {
       disposeObject(child);
     });
     three.bodyMeshes = new Map();
+    three.trailLines = new Map();
+    three.bodyOrbitLines = new Map();
     three.pickables = [];
     bodies.forEach((body) => {
+      if (body.orbit > 0) {
+        const orbitLine = makeBodyOrbitLine(body, readModel());
+        three.bodyOrbitLines.set(body.id, orbitLine);
+        three.bodyGroup.add(orbitLine);
+      }
+
       const group = makeBodyGroup(body);
       three.bodyMeshes.set(body.id, group);
       three.bodyGroup.add(group);
       group.traverse((child) => {
         if (child.isMesh) three.pickables.push(child);
       });
+
+      const trail = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({
+          color: body.type === "star" ? 0xfbbf24 : (body.texture === "mars" ? 0xf97316 : 0x38bdf8),
+          transparent: true,
+          opacity: body.type === "star" ? 0.34 : 0.52
+        })
+      );
+      three.trailLines.set(body.id, trail);
+      three.bodyGroup.add(trail);
     });
     three.bodyMeshSignature = bodies.map((body) => [
       body.id,
       body.type,
       body.radius.toFixed(4),
+      body.orbit.toFixed(4),
+      body.inclination.toFixed(4),
+      (body.eccentricity ?? readModel().eccentricity).toFixed(4),
       body.texture
     ].join(":")).join("|");
   }
@@ -544,18 +635,40 @@ function setupCelestialLab() {
       body.id,
       body.type,
       body.radius.toFixed(4),
+      body.orbit.toFixed(4),
+      body.inclination.toFixed(4),
+      (body.eccentricity ?? model.eccentricity).toFixed(4),
       body.texture
     ].join(":")).join("|");
     if (three.bodyMeshSignature !== signature) rebuildBodyMeshes();
 
     let selectedPosition = null;
     let selectedRadius = 0.2;
+    const barycenter = new THREE.Vector3();
+    let totalMass = 0;
     bodies.forEach((body) => {
       const group = three.bodyMeshes.get(body.id);
       if (!group) return;
       const position = bodyPosition(body, model, progress);
       group.position.copy(position);
-      group.rotation.y += body.type === "star" ? 0.008 : 0.035;
+      group.rotation.z = (body.spinTilt * Math.PI) / 180;
+      group.rotation.y += 0.018 * body.spin;
+      barycenter.addScaledVector(position, body.mass);
+      totalMass += body.mass;
+
+      const trail = three.trailLines.get(body.id);
+      if (trail) {
+        const points = [];
+        const sampleCount = body.type === "star" ? 36 : 72;
+        const trailSpan = body.type === "star" ? 0.18 : 0.28;
+        for (let i = sampleCount; i >= 0; i -= 1) {
+          const p = progress - (i / sampleCount) * trailSpan;
+          points.push(bodyPosition(body, model, p));
+        }
+        trail.geometry.dispose();
+        trail.geometry = new THREE.BufferGeometry().setFromPoints(points);
+      }
+
       if (body.id === selectedBodyId) {
         selectedPosition = position;
         selectedRadius = body.radius;
@@ -567,6 +680,53 @@ function setupCelestialLab() {
       three.selectionRing.position.copy(selectedPosition);
       three.selectionRing.scale.setScalar(Math.max(0.16, selectedRadius * 1.7));
     }
+
+    three.barycenterMarker.visible = totalMass > 0;
+    if (totalMass > 0) {
+      barycenter.multiplyScalar(1 / totalMass);
+      three.barycenterMarker.position.copy(barycenter);
+    }
+
+    const frame = controls.viewFrame ? controls.viewFrame.value : "inertial";
+    if (frame === "barycenter" && totalMass > 0) {
+      three.orbitGroup.position.copy(barycenter).multiplyScalar(-1);
+    } else if (frame === "selected" && selectedPosition) {
+      three.orbitGroup.position.copy(selectedPosition).multiplyScalar(-1);
+    } else {
+      three.orbitGroup.position.set(0, 0, 0);
+    }
+  }
+
+  function selectNearestProjectedBody(event) {
+    if (!three || !bodies.length) return false;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    const progress = Number(controls.slider.value || 0);
+    const model = readModel();
+    let best = null;
+
+    bodies.forEach((body) => {
+      const world = bodyPosition(body, model, progress)
+        .clone()
+        .add(three.orbitGroup.position)
+        .applyMatrix4(three.pivot.matrixWorld);
+      const projected = world.clone().project(three.camera);
+      const x = ((projected.x + 1) / 2) * rect.width;
+      const y = ((1 - projected.y) / 2) * rect.height;
+      const distance = Math.hypot(clickX - x, clickY - y);
+      const threshold = Math.max(30, body.radius * 80);
+      if (distance <= threshold && (!best || distance < best.distance)) {
+        best = { body, distance };
+      }
+    });
+
+    if (!best) return false;
+    selectedBodyId = best.body.id;
+    syncBodySelect();
+    syncBodyEditor();
+    drawScene();
+    return true;
   }
 
   function disposeObject(object) {
@@ -724,6 +884,18 @@ function setupCelestialLab() {
       selectionRing.visible = false;
       orbitGroup.add(selectionRing);
 
+      const barycenterMarker = new THREE.Mesh(
+        new THREE.TorusGeometry(0.08, 0.012, 10, 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xa78bfa,
+          transparent: true,
+          opacity: 0.95
+        })
+      );
+      barycenterMarker.rotation.x = Math.PI / 2;
+      barycenterMarker.visible = false;
+      orbitGroup.add(barycenterMarker);
+
       let orbitLine = null;
       const raycaster = new THREE.Raycaster();
       const pointer = new THREE.Vector2();
@@ -746,9 +918,11 @@ function setupCelestialLab() {
         planetGlow,
         bodyGroup,
         bodyMeshes: new Map(),
+        trailLines: new Map(),
         bodyMeshSignature: "",
         pickables: [],
         selectionRing,
+        barycenterMarker,
         raycaster,
         pointer,
         orbitLine,
@@ -766,18 +940,26 @@ function setupCelestialLab() {
         const dx = event.clientX - clickStart.x;
         const dy = event.clientY - clickStart.y;
         clickStart = null;
-        if (Math.hypot(dx, dy) > 5) return;
+        if (Math.hypot(dx, dy) > 12) return;
         const rect = canvas.getBoundingClientRect();
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+        three.scene.updateMatrixWorld(true);
         raycaster.setFromCamera(pointer, camera);
         const hits = raycaster.intersectObjects(three.pickables, true);
         const hit = hits.find((item) => item.object.userData.bodyId);
-        if (!hit) return;
+        if (!hit) {
+          selectNearestProjectedBody(event);
+          return;
+        }
         selectedBodyId = hit.object.userData.bodyId;
         syncBodySelect();
         syncBodyEditor();
         drawScene();
+      });
+
+      canvas.addEventListener("click", (event) => {
+        selectNearestProjectedBody(event);
       });
     } catch (error) {
       fallback2d = true;
@@ -799,21 +981,10 @@ function setupCelestialLab() {
     if (!three) return;
     ensureBodies();
     const metrics = computeMetrics(model);
-    const orbitSignature = [
-      model.semiMajor.toFixed(4),
-      model.eccentricity.toFixed(4)
-    ].join(":");
-
-    if (three.orbitSignature !== orbitSignature && three.orbitLine) {
+    if (three.orbitLine) {
       three.orbitGroup.remove(three.orbitLine);
       disposeObject(three.orbitLine);
       three.orbitLine = null;
-    }
-
-    if (!three.orbitLine) {
-      three.orbitLine = makeOrbitLine(model);
-      three.orbitGroup.add(three.orbitLine);
-      three.orbitSignature = orbitSignature;
     }
 
     updateBodyMeshes(model, progress);
@@ -1036,7 +1207,7 @@ function setupCelestialLab() {
     lastFrame = timestamp;
     const model = readModel();
     const current = Number(controls.slider.value || 0);
-    controls.slider.value = String((current + dt * 0.035 * model.speed) % 1);
+    controls.slider.value = String((current + dt * 0.09 * model.speed) % 1);
     drawScene();
     rafId = requestAnimationFrame(tick);
   }
@@ -1045,8 +1216,11 @@ function setupCelestialLab() {
     controls.bodyMass,
     controls.bodyRadius,
     controls.bodyOrbit,
+    controls.bodyEccentricity,
     controls.bodyPhase,
-    controls.bodyInclination
+    controls.bodyInclination,
+    controls.bodySpin,
+    controls.bodySpinTilt
   ];
 
   Object.values(controls).forEach((control) => {
@@ -1056,7 +1230,9 @@ function setupCelestialLab() {
       controls.bodySelect,
       controls.addPlanetBtn,
       controls.addStarBtn,
+      controls.removeBodyBtn,
       controls.resetPresetBtn,
+      controls.bodySummary,
       ...bodyEditorControls
     ].includes(control)) return;
     control.addEventListener("input", refresh);
@@ -1091,6 +1267,10 @@ function setupCelestialLab() {
 
   controls.addStarBtn.addEventListener("click", () => {
     addBody("star");
+  });
+
+  controls.removeBodyBtn.addEventListener("click", () => {
+    removeSelectedBody();
   });
 
   controls.resetPresetBtn.addEventListener("click", () => {

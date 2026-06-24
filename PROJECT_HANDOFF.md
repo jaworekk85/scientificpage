@@ -81,7 +81,7 @@ Current Celestial Mechanics UI status:
   - `js/celestial/celestial-lab.js`
 - The current renderer is a first Three.js/WebGL orbit scene with OrbitControls, pan/zoom/rotate camera interaction, a procedural star/corona, procedural planet textures, selectable bodies, and a 2D canvas fallback if Three.js fails to load.
 - The layout reserves space for the WebGL viewport plus diagnostic plots.
-- Current object workflow supports picking bodies in the 3D scene, selecting from a dropdown, editing mass/radius/orbit/phase/inclination, adding planets or stars, resetting the preset, and visual binary/circumbinary presets.
+- Current object workflow supports picking bodies in the 3D scene, selecting from a dropdown, editing mass/radius/orbit/eccentricity/phase/inclination/spin/spin-tilt, adding/removing planets or stars, resetting the preset, visual binary/circumbinary presets, a barycenter marker, simple trails, inertial/barycenter/selected-body view frames, and a compact control hint over the viewport.
 - Future object workflow should replace the visual orbit scaffold with true N-body state variables and add remove/duplicate controls, moons, hierarchical systems, and persistent body lists.
 
 The `Rotation / rigid body` category currently contains:
