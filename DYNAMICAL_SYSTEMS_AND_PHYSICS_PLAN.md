@@ -45,7 +45,7 @@ Implemented:
 ## Near Roadmap
 
 1. **Tidal forces module**
-   - Polish tidal acceleration/gradient vectors around an extended body.
+   - Show tidal acceleration/gradient vectors around an extended body.
    - Add a simple two-body spin-orbit model: spin slows, orbit changes, total angular momentum tracked.
    - Demonstrate tidal locking and orbital recession/decay with clear simplifications.
 
