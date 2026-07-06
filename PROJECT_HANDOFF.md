@@ -1,6 +1,6 @@
 # Project Handoff Notes
 
-Status: 2026-06-22
+Status: 2026-07-05
 
 This file is a compact memory anchor for future sessions after editor, browser, or assistant restarts.
 
@@ -33,6 +33,8 @@ The usual workflow is iterative and visual:
 3. The user refreshes the already-open browser page and visually checks what changed.
 4. The user reports what looks good, wrong, awkward, or confusing.
 5. Codex adjusts the code and repeats.
+
+Do not start a dev server for normal work. The project is just a static page; the user already has it open in the browser and refreshes it manually. Only use local static serving if the user explicitly asks for it.
 
 The user likes direct, practical progress over long planning. Short status updates are useful while Codex is reading or editing.
 
@@ -81,8 +83,15 @@ Current Celestial Mechanics UI status:
   - `js/celestial/celestial-lab.js`
 - The current renderer is a first Three.js/WebGL orbit scene with OrbitControls, pan/zoom/rotate camera interaction, a procedural star/corona, procedural planet textures, selectable bodies, and a 2D canvas fallback if Three.js fails to load.
 - The layout reserves space for the WebGL viewport plus diagnostic plots.
-- Current object workflow supports picking bodies in the 3D scene, selecting from a dropdown, editing mass/radius/orbit/eccentricity/phase/inclination/spin/spin-tilt, adding/removing planets or stars, resetting the preset, visual binary/circumbinary presets, a barycenter marker, simple trails, inertial/barycenter/selected-body view frames, and a compact control hint over the viewport.
-- Future object workflow should replace the visual orbit scaffold with true N-body state variables and add remove/duplicate controls, moons, hierarchical systems, and persistent body lists.
+- Current object workflow supports picking bodies in the 3D scene, selecting from a dropdown, editing mass/radius/spin plus either orbital elements or initial position/velocity, adding/removing planets or stars, resetting the preset, organized starting presets/recipes, a `Custom / edited system` marker after manual changes, a barycenter marker, motion trails, inertial/barycenter/selected-body/rotating-pair view frames, and a compact control hint over the viewport. Trails, trajectory overlays, Lagrange markers, and collision markers are drawn in the active view frame.
+- Orbital elements and the Runge-Lenz vector are currently UI-enabled only for two-body systems. For more bodies, positions and velocities are the canonical initial data; later osculating elements should be labeled as approximate/reference-body-relative.
+- Kepler I/II overlays are also two-body-only. They follow the chosen view frame: barycentric drawing in barycenter view and relative drawing in selected-body view. Kepler II draws completed equal-time swept sectors only, with sector duration controlled as a percentage of the current osculating period.
+- Kepler III comparison is conditional: one dominant central star and sufficiently separated orbiting bodies. It measures `T` from successive periapsis passages in the simulated trajectory and `a = (r_peri + r_apo) / 2` from the last completed radial cycle, then compares measured `T^2/a^3` against `4 pi^2 / G(M + m)`.
+- Lagrange points: optional `L1`-`L5` overlay based on the two most massive bodies as the current reference pair. It labels CR3BP assumptions/stability, reports pair eccentricity, and can toggle a tiny test body at any L point with rotating-frame rest velocity. Active L-point buttons remove their corresponding test body. The `Rotating pair frame` view centers/rotates with the primary pair, and the third diagnostic plot adds distance-to-assigned-L traces for active L-point test bodies. Starting presets now include `L4`/`L5` tadpole and horseshoe co-orbital recipes. For `N > 2`, this is approximate until explicit pair selection is added.
+- Celestial integrators: velocity Verlet/leapfrog, RK4, explicit midpoint RK2, symplectic Euler / Euler-Cromer, and Euler. Names are aligned with the Methods section; the primitive methods are deliberately present so users can see energy drift and bad long-time behavior.
+- Current Celestial diagnostics use checkbox-selectable energy lines (`K`, `U`, `E`, selected share plus others share, `K` per body, `U` per pair, `E` share per body), checkbox-selectable angular-momentum components, and a generic collision monitor. Energy kinetic/total values use the current view frame; potential energy stays frame-independent. Collision handling has `detect only` and `merge / accrete`; merge conserves mass and linear momentum in the simulated trajectory, hides the accreted slot, and approximates combined radius by volume addition. The intended organization is one capability-driven sandbox: presets are starting recipes with suggested view/diagnostics. Add/remove/edit marks the selector as `Custom / edited system`, while reset returns to the last chosen recipe and controls are determined by current system capabilities rather than the original preset label.
+- Trajectory integration is currently a completed precompute into a sample buffer before playback. Normal runs keep every integration step; very long runs may decimate samples. Playback uses internal JS state (`playProgress`) as the clock; the range slider mirrors/sets that state but must not be treated as the source of simulation time. Avoid the earlier half-streamed buffering approach where Plotly updates and animation ticks competed with the solver. For genuinely long runs, the right next architecture is a Web Worker that computes sample chunks independently and posts them to the visualizer.
+- Current Celestial work is replacing the visual orbit scaffold with true N-body state variables. Remaining workflow polish includes duplicate controls, moons, hierarchical systems, persistent body lists, and clearer preset/body-list management.
 
 The `Rotation / rigid body` category currently contains:
 
@@ -172,7 +181,7 @@ Planned direction:
 - Start with the two-body / Kepler problem:
   - circular, elliptical, parabolic, and hyperbolic orbits;
   - comparison against analytic orbit shapes;
-  - plots for energy, angular momentum, eccentricity, and orbital elements.
+  - plots for energy, angular momentum, eccentricity, and orbital elements. The current celestial angular-momentum plot uses checkbox-selectable `Lx`, `Ly`, `Lz`, and `|L|` groups; each enabled group shows total plus per-body traces.
 - The unusual conserved quantity the user remembered is probably the Laplace-Runge-Lenz vector / eccentricity vector. It points toward periapsis and is conserved in the ideal inverse-square two-body problem.
 - Then add:
   - three-body and N-body chaos;

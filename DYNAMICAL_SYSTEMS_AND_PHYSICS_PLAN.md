@@ -1,88 +1,78 @@
 # Dynamical Systems and Physics Roadmap
 
-Status: 2026-06-23
+Status: 2026-07-06
 
-Short source of truth. Old `Dynamics` work is mostly done; active roadmap is **Celestial Mechanics**.
+Short source of truth. `Dynamics` is mostly complete; active work is **Celestial Mechanics**.
 
 ## Current State
 
 - `Numerical Methods`: ODE methods, stages, errors, comparisons.
-- `Dynamics`: mechanics, rotation, fields/circuits, biology, chaos, phase flow / Liouville.
-- `Celestial Mechanics`: new top-level tab with first Three.js/WebGL scene, object picking, editable visual bodies, binary/circumbinary presets, and diagnostic plot slots.
+- `Dynamics`: mature examples for mechanics, rotation, fields/circuits, biology, chaos, phase flow / Liouville. Expand only for bug fixes, clarity polish, or unusually strong teaching examples.
+- `Celestial Mechanics`: one capability-driven sandbox. Presets are starting recipes, not closed modes; after edits the system becomes custom and controls are inferred from current bodies/capabilities.
 
-## Dynamics Snapshot
+## Celestial Mechanics Snapshot
 
-Do not keep expanding `Dynamics` unless it is a bug fix, clarity polish, or an unusually strong teaching example.
+Implemented:
 
-Implemented: oscillators, pendulum, projectile/bounce, coupled oscillators, rotating disk, rolling bodies, spool, Wilberforce, gyroscope, charged particle, rigid dipole, RLC, Lotka-Volterra, FitzHugh-Nagumo, Lorenz, logistic map, double pendulum, Duffing trajectory view, phase flow / Liouville.
+- Three.js viewport with OrbitControls, body picking, selected-body dropdown, barycenter marker, selection ring, motion trails, and view frames: inertial, barycenter, selected body, rotating pair.
+- Editable bodies with mass, radius, spin, initial position, and initial velocity. Two-body orbital elements are available only when meaningful.
+- True N-body trajectory precompute into a sample buffer before playback. `playProgress` is the animation clock; the slider mirrors/sets it. For genuinely long runs, move solver work to a Web Worker rather than mixing solver, Plotly, and animation ticks.
+- Integrators: velocity Verlet/leapfrog, RK4, explicit midpoint RK2, symplectic Euler / Euler-Cromer, Euler. Primitive methods are for teaching failure modes.
+- Diagnostics:
+  - energy plot: `K`, `U`, `E`, selected/rest share, `K` per body, `U` per pair, `E` share per body. `K` and total `E` use the currently selected view frame; `U` is gravitational and frame-independent.
+  - angular momentum plot: inertial `Lx`, `Ly`, `Lz`, `|L|`, total plus per-body traces.
+  - collision/Lagrange diagnostic plot: closest distance/contact distance, collision events, and distance-to-assigned-L traces for L-point test bodies.
+- Collision tools: `detect only` and `merge / accrete`. Merge conserves mass and linear momentum in the trajectory, hides the accreted slot, and combines radius by volume.
+- Optional two-body tools: Runge-Lenz/eccentricity vector, Kepler I/II overlays, Kepler III measured-vs-theoretical comparison.
+- Lagrange tools: optional `L1`-`L5` overlay for the current reference pair; currently the two most massive bodies. Shows CR3BP assumptions/stability hints, pair eccentricity, and can toggle tiny test bodies at L-points.
+- Co-orbital presets: L4/L5 tadpole loops, true horseshoe-style co-orbital starter, and wide co-orbital loop starter. Rotating-pair view is the intended view for reading these.
+- Tidal-force first pass: optional overlay on the selected body showing differential gravitational acceleration vectors, plus a compact status panel with the dominant tidal source and tide/surface-gravity ratio.
 
-Decisions:
+## Design Rules
 
-- Driven damped pendulum chaos view removed: not visually convincing.
-- Duffing bifurcation / Poincare sweep removed: too confusing visually.
-- Crank-slider postponed unless it gets real dynamics beyond kinematics.
+- Use state vectors as canonical data for `N > 2`; orbital elements are a two-body convenience.
+- Gravity: `F_ij = -G m_i m_j (r_i - r_j) / |r_i - r_j|^3`; ODE: `r_i' = v_i`, `v_i' = sum_j F_ij / m_i`.
+- Capability checks should enable tools dynamically:
+  - `N = 2`: orbital elements, Runge-Lenz, Kepler tools;
+  - `N > 2`: state vectors, trails, N-body diagnostics;
+  - radii present: collision monitor/handling;
+  - reference pair present: Lagrange/co-orbital tools;
+  - spacecraft present: burns, fuel, transfers, encounters, assists;
+  - tidal model present: tidal gradients, spin-orbit exchange, locking diagnostics.
+- Lagrange points are exact only in the circular restricted three-body interpretation. For eccentric/perturbed systems, label them as instantaneous approximations.
+- Plot titles must state frame assumptions. In rotating or selected-body frames, `K`/`E` are diagnostic frame-relative quantities, not conserved inertial energy.
 
-## Celestial Mechanics
+## Near Roadmap
 
-Current implementation:
+1. **Tidal forces module**
+   - Polish tidal acceleration/gradient vectors around an extended body.
+   - Add a simple two-body spin-orbit model: spin slows, orbit changes, total angular momentum tracked.
+   - Demonstrate tidal locking and orbital recession/decay with clear simplifications.
 
-- Three.js/WebGL viewport with OrbitControls: rotate, zoom, pan.
-- Procedural star/corona and planet textures.
-- Select body by click or dropdown.
-- Edit visual parameters per selected body: mass, radius, orbit, eccentricity, phase, inclination, spin, spin tilt.
-- Add planet/star, remove selected body, and reset preset.
-- Shows a control hint, barycenter marker, selection ring, and simple trails.
-- View frame can be inertial, barycenter-centered, or selected-body-centered.
-- Binary-star and circumbinary visual presets.
-- Still only a visual Kepler-style scaffold, not real N-body physics yet.
+2. **Spacecraft / rocket module**
+   - Add spacecraft/test-particle role: affected by gravity, optionally negligible back-reaction.
+   - Parameters: dry mass, fuel mass, thrust, simplified fuel efficiency or `Isp`, delta-v budget.
+   - Control modes:
+     - manual/game: prograde, retrograde, radial in/out, normal/antinormal, toward target;
+     - planner: burns by time/event, direction, duration, thrust level or delta-v.
+   - Later: Hohmann transfer exercise, finite burns, low-thrust spirals, encounter targeting, gravity assists.
 
-Core target:
+3. **Lagrange polish**
+   - Explicit reference-pair selector for `N > 2`.
+   - Optional Jacobi/zero-velocity contours for circular restricted three-body presets.
+   - Better explanatory overlay for co-orbital coordinates, especially horseshoe vs wide libration.
 
-- Each body should have `m`, `r`, `v`, radius, visual style, and trail.
-- Gravity: `F_ij = -G m_i m_j (r_i - r_j) / |r_i - r_j|^3`.
-- ODE: `r_i' = v_i`, `v_i' = sum_j F_ij / m_i`.
-- Diagnostics: energy, momentum, barycenter, angular momentum `L`, orbital elements, energy drift.
-- Main integrator: leapfrog / velocity Verlet. Keep RK4 for comparison.
-- Long runs should be integrated incrementally in chunks, with buffered/decimated history for trails and plots, not precomputed as one huge array.
+4. **Preset/body workflow polish**
+   - Clearer custom-system state and body list.
+   - Better collision history labels.
+   - Star-planet-moon and Solar-System-like presets only when their specific diagnostics exist.
 
-Roadmap:
+## Later Ideas
 
-1. Replace visual orbits with real N-body state: `m`, `r`, `v`.
-2. Add two-body Kepler lab with analytic comparison.
-3. Show energy, `L`, orbital elements, and Laplace-Runge-Lenz / eccentricity vector.
-4. Compare RK4 vs leapfrog / velocity Verlet.
-5. Improve body editor: true `r/v` editing, add/remove/duplicate, barycenter, presets.
-6. Add spacecraft as test particle.
-7. Add impulsive burns: `v -> v + Delta v`, prograde/retrograde/radial/normal/custom.
-8. Add Hohmann transfer overlay and interactive burn exercise.
-9. Add finite burns with fuel:
-   - state `(r, v, m)`,
-   - `r' = v`,
-   - `v' = gravity + T u / m`,
-   - `m' = -T / (Isp g0)`.
-10. Add restricted three-body and Lagrange points.
-11. Add Solar System and star-planet-moon presets.
-12. Add gravity assists and patched-conic explanations.
-
-Later ideas:
-
-- tides, tidal locking, Moon recession,
-- Hill sphere,
-- Roche limit,
-- resonances,
-- low-thrust spirals,
-- perturbation precession,
-- J2 satellite perturbation,
-- Lambert solver / transfer windows.
-
-Visualization rules:
-
-- Keep Three.js scene physically legible: trails, orbital planes, vectors, burn markers, barycenter, scale/time controls.
-- Pair 3D with plots; do not rely on pretty visuals alone.
-- Keep UI responsive: stacked panels/plots on narrow screens.
+- Hill sphere, Roche limit, resonances, perturbation precession, J2 satellite perturbation, Lambert solver / transfer windows.
 
 ## Documentation Hygiene
 
 - Keep this file short.
 - Put detailed recovery/collaboration notes in `PROJECT_HANDOFF.md`.
-- Old completed/rejected work gets one-line bullets, not roadmap sections.
+- Completed/rejected old work gets one-line bullets, not new roadmap sections.

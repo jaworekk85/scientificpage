@@ -578,7 +578,7 @@ window.MathJax = {
           <select id="chaosMethod">
             <option value="rk4">RK4</option>
             <option value="heun">Heun RK2</option>
-            <option value="midpoint">midpoint RK2</option>
+            <option value="midpoint">explicit midpoint RK2</option>
             <option value="euler">Euler</option>
           </select>
         </label>
@@ -776,21 +776,29 @@ window.MathJax = {
   <div class="panel celestial-controls-panel">
     <h2>Celestial Mechanics</h2>
 
-    <label>scenario</label>
+    <label>starting preset</label>
     <select id="celestialScenario">
-      <option value="twoBody">Two-body Kepler problem</option>
-      <option value="binary">Binary-star preset</option>
-      <option value="circumbinary">Circumbinary planet</option>
-      <option value="threeBody">Three-body chaos</option>
-      <option value="solarSystem">Solar System preset</option>
-      <option value="transfer">Hohmann transfer</option>
-      <option value="lagrange">Lagrange points</option>
+      <option value="custom" disabled>Custom / edited system</option>
+      <optgroup label="Core">
+        <option value="twoBody" selected>Two-body Kepler problem</option>
+        <option value="binary">Binary-star pair</option>
+        <option value="threeBody">Three-body interaction</option>
+      </optgroup>
+      <optgroup label="Co-orbital / Lagrange">
+        <option value="tadpoleL4">L4 tadpole loop starter</option>
+        <option value="tadpoleL5">L5 tadpole loop starter</option>
+        <option value="horseshoe">Horseshoe co-orbital starter</option>
+        <option value="wideCoOrbital">Wide co-orbital loop starter</option>
+      </optgroup>
     </select>
 
     <label>integrator</label>
     <select id="celestialMethod">
       <option value="verlet">velocity Verlet / leapfrog</option>
-      <option value="rk4">RK4 comparison</option>
+      <option value="rk4">RK4</option>
+      <option value="midpoint">explicit midpoint RK2</option>
+      <option value="symplecticEuler">symplectic Euler / Euler-Cromer</option>
+      <option value="euler">Euler</option>
     </select>
 
     <div id="celestialEquation" class="equation-display">
@@ -808,6 +816,12 @@ window.MathJax = {
       <label>speed <input id="celestialSpeed" type="number" step="0.1" value="1"></label>
     </div>
 
+    <label>collision mode</label>
+    <select id="celestialCollisionMode">
+      <option value="detect">detect only</option>
+      <option value="merge">merge / accrete</option>
+    </select>
+
     <label>selected object</label>
     <select id="celestialBodySelect"></select>
 
@@ -816,7 +830,76 @@ window.MathJax = {
       <option value="inertial">Inertial frame</option>
       <option value="barycenter">Barycenter frame</option>
       <option value="selected">Selected body frame</option>
+      <option value="rotatingPair">Rotating pair frame</option>
     </select>
+
+    <label>energy plot</label>
+    <div class="celestial-diagnostic-toggles">
+      <label><input id="celestialEnergyK" type="checkbox" checked> K</label>
+      <label><input id="celestialEnergyU" type="checkbox" checked> U</label>
+      <label><input id="celestialEnergyTotal" type="checkbox" checked> E</label>
+      <label><input id="celestialEnergyExchange" type="checkbox"> selected share</label>
+      <label><input id="celestialEnergyKBody" type="checkbox"> K per body</label>
+      <label><input id="celestialEnergyUPair" type="checkbox"> U per pair</label>
+      <label><input id="celestialEnergyEShare" type="checkbox"> E share per body</label>
+    </div>
+
+    <label>angular plot</label>
+    <div class="celestial-diagnostic-toggles celestial-angular-toggles">
+      <label><input id="celestialAngularLx" type="checkbox"> Lx</label>
+      <label><input id="celestialAngularLy" type="checkbox"> Ly</label>
+      <label><input id="celestialAngularLz" type="checkbox"> Lz</label>
+      <label><input id="celestialAngularMag" type="checkbox" checked> |L|</label>
+    </div>
+
+    <label>initial data</label>
+    <select id="celestialInputMode">
+      <option value="state">positions + velocities</option>
+      <option value="orbit">orbital elements</option>
+    </select>
+
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowRungeLenz" type="checkbox">
+      show Runge-Lenz vector A
+    </label>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowKeplerFirst" type="checkbox">
+      Kepler I: orbit + focus
+    </label>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowKeplerSecond" type="checkbox">
+      Kepler II: equal time areas
+    </label>
+    <label class="celestial-kepler-setting">
+      sector dt
+      <span><input id="celestialKeplerSecondPercent" type="number" min="1" max="40" step="1" value="8"> % period</span>
+    </label>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowKeplerThird" type="checkbox">
+      Kepler III: T^2/a^3
+    </label>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowLagrange" type="checkbox">
+      show Lagrange points
+    </label>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowTidalForces" type="checkbox">
+      show tidal forces
+    </label>
+    <div class="celestial-lagrange-controls">
+      <span>place test body</span>
+      <div>
+        <button type="button" data-lagrange-place="L1">L1</button>
+        <button type="button" data-lagrange-place="L2">L2</button>
+        <button type="button" data-lagrange-place="L3">L3</button>
+        <button type="button" data-lagrange-place="L4">L4</button>
+        <button type="button" data-lagrange-place="L5">L5</button>
+      </div>
+    </div>
+    <label class="checkbox-row celestial-vector-toggle">
+      <input id="celestialShowTrails" type="checkbox" checked>
+      show motion trails
+    </label>
 
     <div class="celestial-button-row">
       <button id="celestialAddPlanetBtn" type="button">Add planet</button>
@@ -830,10 +913,16 @@ window.MathJax = {
     <div class="row inline-inputs celestial-body-editor">
       <label>mass <input id="celestialBodyMass" type="number" step="0.1" value="1"></label>
       <label>radius <input id="celestialBodyRadius" type="number" step="0.01" value="0.2"></label>
-      <label>orbit a <input id="celestialBodyOrbit" type="number" step="0.1" value="3"></label>
-      <label>e <input id="celestialBodyEccentricity" type="number" min="0" max="0.95" step="0.05" value="0"></label>
-      <label>phase <input id="celestialBodyPhase" type="number" step="0.05" value="0"></label>
-      <label>inclination <input id="celestialBodyInclination" type="number" step="1" value="0"></label>
+      <label class="celestial-orbit-field">orbit a <input id="celestialBodyOrbit" type="number" step="0.1" value="3"></label>
+      <label class="celestial-orbit-field">e <input id="celestialBodyEccentricity" type="number" min="0" max="0.95" step="0.05" value="0"></label>
+      <label class="celestial-orbit-field">phase <input id="celestialBodyPhase" type="number" step="0.05" value="0"></label>
+      <label class="celestial-orbit-field">inclination <input id="celestialBodyInclination" type="number" step="1" value="0"></label>
+      <label class="celestial-state-field">x <input id="celestialBodyX" type="number" step="0.1" value="0"></label>
+      <label class="celestial-state-field">y <input id="celestialBodyY" type="number" step="0.1" value="0"></label>
+      <label class="celestial-state-field">z <input id="celestialBodyZ" type="number" step="0.1" value="0"></label>
+      <label class="celestial-state-field">vx <input id="celestialBodyVx" type="number" step="0.05" value="0"></label>
+      <label class="celestial-state-field">vy <input id="celestialBodyVy" type="number" step="0.05" value="0"></label>
+      <label class="celestial-state-field">vz <input id="celestialBodyVz" type="number" step="0.05" value="0"></label>
       <label>spin <input id="celestialBodySpin" type="number" step="0.1" value="1"></label>
       <label>spin tilt <input id="celestialBodySpinTilt" type="number" step="1" value="0"></label>
     </div>
@@ -843,6 +932,9 @@ window.MathJax = {
       <span><strong>L</strong> <em id="celestialMetricAngularMomentum">4.054</em></span>
       <span><strong>e</strong> <em id="celestialMetricEccentricity">0.450</em></span>
       <span><strong>|A|</strong> <em id="celestialMetricRungeLenz">0.450</em></span>
+    </div>
+    <div class="celestial-metric-help">
+      E uses the selected view frame for K; L is inertial angular momentum. e and A are two-body eccentricity and Runge-Lenz vector.
     </div>
   </div>
 
@@ -855,7 +947,12 @@ window.MathJax = {
       <button id="celestialPlayBtn" type="button">Play</button>
       <input id="celestialTimeSlider" type="range" min="0" max="1" step="0.001" value="0.28">
       <span id="celestialTimeLabel">t=8.4</span>
+      <span id="celestialBufferStatus" class="celestial-buffer-status">buffer ready</span>
+      <span id="celestialCollisionStatus" class="celestial-collision-status">no collision</span>
     </div>
+    <div id="celestialKeplerStatus" class="celestial-kepler-panel"></div>
+    <div id="celestialLagrangeStatus" class="celestial-lagrange-panel"></div>
+    <div id="celestialTidalStatus" class="celestial-tidal-panel"></div>
     <div class="celestial-plot-grid">
       <div id="celestialEnergyPlot" class="methods-plot"></div>
       <div id="celestialAngularPlot" class="methods-plot"></div>

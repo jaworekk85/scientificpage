@@ -1144,7 +1144,7 @@
     if (label === "position") return "y_(n+1)";
     if (label === "next") return "next";
     if (label === "Euler") return "Euler";
-    if (label === "Euler-Cromer") return "EC";
+    if (label === "Euler-Cromer" || label === "symplectic Euler / Euler-Cromer") return "EC";
     return label.split(/\s+/).slice(0, 2).join(" ");
   }
 
@@ -1156,7 +1156,7 @@
     if (label === "position") return "a_(n+1)";
     if (label === "next") return "v_(n+1)";
     if (label === "Euler") return "v_(n+1)";
-    if (label === "Euler-Cromer") return "v_(n+1)";
+    if (label === "Euler-Cromer" || label === "symplectic Euler / Euler-Cromer") return "v_(n+1)";
     if (label === "mid") return "v_mid";
     return `v_${index}`;
   }

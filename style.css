@@ -739,6 +739,115 @@ input[type="range"] {
   width: 72px;
 }
 
+.celestial-controls-panel .celestial-body-editor .celestial-state-field input {
+  width: 78px;
+}
+
+.celestial-vector-toggle {
+  margin: 8px 0 10px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.celestial-kepler-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 0 10px 24px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.celestial-kepler-setting span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.celestial-kepler-setting input {
+  width: 58px;
+}
+
+.celestial-lagrange-controls {
+  margin: -2px 0 10px 24px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.celestial-lagrange-controls span {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.celestial-lagrange-controls div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.celestial-lagrange-controls button {
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.celestial-lagrange-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.celestial-lagrange-controls button.is-active {
+  border-color: #7c3aed;
+  background: #ede9fe;
+  color: #4c1d95;
+  box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.3);
+}
+
+.celestial-diagnostic-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+
+.celestial-angular-toggles {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.celestial-diagnostic-toggles label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.celestial-diagnostic-toggles input {
+  width: auto;
+}
+
+.celestial-body-editor[data-mode="state"] .celestial-orbit-field,
+.celestial-body-editor[data-mode="orbit"] .celestial-state-field {
+  display: none;
+}
+
 .celestial-output-panel {
   min-width: 0;
 }
@@ -783,7 +892,7 @@ input[type="range"] {
 
 .celestial-animation-controls {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto minmax(140px, auto);
   gap: 10px;
   align-items: center;
   margin: 10px 0 12px;
@@ -808,10 +917,26 @@ input[type="range"] {
   font-variant-numeric: tabular-nums;
 }
 
+.celestial-animation-controls .celestial-buffer-status {
+  min-width: 92px;
+  color: #64748b;
+  text-align: left;
+}
+
+.celestial-animation-controls .celestial-collision-status {
+  min-width: 140px;
+  color: #b91c1c;
+  text-align: left;
+}
+
 .celestial-plot-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
+}
+
+.celestial-plot-grid .methods-plot {
+  min-height: 280px;
 }
 
 .celestial-metrics {
@@ -836,6 +961,151 @@ input[type="range"] {
 .celestial-metrics em {
   color: #0f172a;
   font-style: normal;
+}
+
+.celestial-metric-help {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.celestial-metric-help:empty {
+  display: none;
+}
+
+.celestial-kepler-panel {
+  display: none;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  background: #f0f9ff;
+  color: #0f172a;
+  overflow-x: auto;
+}
+
+.celestial-kepler-panel.is-visible {
+  display: block;
+}
+
+.celestial-kepler-panel h3 {
+  margin: 0 0 8px;
+  color: #075985;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.celestial-kepler-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) repeat(4, minmax(72px, 0.9fr));
+  gap: 6px 10px;
+  align-items: center;
+  min-width: 520px;
+  font-size: 12px;
+}
+
+.celestial-kepler-grid span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.celestial-kepler-grid .header {
+  color: #475569;
+  font-weight: 800;
+}
+
+.celestial-kepler-bar {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.celestial-kepler-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0284c7;
+}
+
+.celestial-kepler-match {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.celestial-kepler-match strong {
+  color: #075985;
+  font-size: 12px;
+}
+
+.celestial-kepler-note {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.celestial-lagrange-panel,
+.celestial-tidal-panel {
+  display: none;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #0f172a;
+}
+
+.celestial-tidal-panel {
+  border-color: #bae6fd;
+  background: #f0f9ff;
+}
+
+.celestial-lagrange-panel.is-visible,
+.celestial-tidal-panel.is-visible {
+  display: block;
+}
+
+.celestial-lagrange-panel h3,
+.celestial-tidal-panel h3 {
+  margin: 0 0 7px;
+  color: #5b21b6;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.celestial-tidal-panel h3 {
+  color: #0369a1;
+}
+
+.celestial-lagrange-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, 1fr));
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.celestial-lagrange-grid span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.celestial-lagrange-grid .header {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.celestial-lagrange-note {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .methods-layout {

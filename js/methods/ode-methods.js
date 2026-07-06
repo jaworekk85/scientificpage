@@ -2,7 +2,7 @@
   const METHOD_DEFS = [
     { key: "euler", label: "Euler", family: "Euler", color: "#1f77b4", formula: "k1=f(t_n,y_n); y_(n+1)=y_n+h*k1" },
     { key: "backwardEuler", label: "backward Euler", family: "Euler", color: "#d62728", formula: "solve y_(n+1)=y_n+h*f(t_(n+1),y_(n+1))" },
-    { key: "midpoint", label: "midpoint RK2", family: "Runge-Kutta", color: "#2ca02c", formula: "k1=f(t_n,y_n); k2=f(t_n+h/2,y_n+h*k1/2); y_(n+1)=y_n+h*k2" },
+    { key: "midpoint", label: "explicit midpoint RK2", family: "Runge-Kutta", color: "#2ca02c", formula: "k1=f(t_n,y_n); k2=f(t_n+h/2,y_n+h*k1/2); y_(n+1)=y_n+h*k2" },
     { key: "heun", label: "Heun RK2", family: "Runge-Kutta", color: "#9467bd", formula: "k1=f(t_n,y_n); k2=f(t_n+h,y_n+h*k1); y_(n+1)=y_n+h*(k1+k2)/2" },
     { key: "rk4", label: "RK4", family: "Runge-Kutta", color: "#111827", formula: "k1=f(t_n,y_n); k2=f(t_n+h/2,y_n+h*k1/2); k3=f(t_n+h/2,y_n+h*k2/2); k4=f(t_n+h,y_n+h*k3); y_(n+1)=y_n+h*(k1+2*k2+2*k3+k4)/6" },
     { key: "rk5", label: "RK5", family: "Runge-Kutta", color: "#7f7f7f", formula: "k1..k6 from intermediate trial points; y_(n+1)=y_n+h*(35*k1/384+500*k3/1113+125*k4/192-2187*k5/6784+11*k6/84)" },

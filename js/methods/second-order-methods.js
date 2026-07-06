@@ -1,8 +1,8 @@
 (function () {
   const METHOD_DEFS = [
     { key: "euler2", label: "Euler", family: "Euler", color: "#1f77b4", formula: "a_n=f(t_n,y_n,v_n); y_(n+1)=y_n+h*v_n; v_(n+1)=v_n+h*a_n" },
-    { key: "eulerCromer", label: "Euler-Cromer", family: "Euler", color: "#d62728", formula: "a_n=f(t_n,y_n,v_n); v_(n+1)=v_n+h*a_n; y_(n+1)=y_n+h*v_(n+1)" },
-    { key: "midpoint2", label: "midpoint RK2", family: "Runge-Kutta", color: "#2ca02c", formula: "k1=(v_n,a_n); mid=(y_n+h*k1_y/2,v_n+h*k1_v/2); y_(n+1)=y_n+h*k2_y; v_(n+1)=v_n+h*k2_v" },
+    { key: "eulerCromer", label: "symplectic Euler / Euler-Cromer", family: "Euler", color: "#d62728", formula: "a_n=f(t_n,y_n,v_n); v_(n+1)=v_n+h*a_n; y_(n+1)=y_n+h*v_(n+1)" },
+    { key: "midpoint2", label: "explicit midpoint RK2", family: "Runge-Kutta", color: "#2ca02c", formula: "k1=(v_n,a_n); mid=(y_n+h*k1_y/2,v_n+h*k1_v/2); y_(n+1)=y_n+h*k2_y; v_(n+1)=v_n+h*k2_v" },
     { key: "rk4System", label: "RK4", family: "Runge-Kutta", color: "#111827", formula: "apply RK4 to y'=v and v'=f(t,y,v)" },
     { key: "verlet", label: "Verlet", family: "Verlet", color: "#9467bd", formula: "y_(n+1)=2*y_n-y_(n-1)+h^2*a_n; v_(n+1)~(y_(n+1)-y_(n-1))/(2h)" },
     { key: "velocityVerlet", label: "velocity Verlet", family: "Verlet", color: "#ff7f0e", formula: "y_(n+1)=y_n+h*v_n+h^2*a_n/2; v_(n+1)=v_n+h*(a_n+a_(n+1))/2" }
@@ -131,7 +131,7 @@
       stages: [
         { label: "start", t, y, v, a },
         { label: "new v", t, y, v: next.v, a },
-        { label: "Euler-Cromer", t: t + h, y: next.y, v: next.v, a: accelFn(t + h, next.y, next.v) }
+        { label: "symplectic Euler / Euler-Cromer", t: t + h, y: next.y, v: next.v, a: accelFn(t + h, next.y, next.v) }
       ],
       guides: [{ label: "new velocity step", from: { t, y }, to: { t: t + h, y: next.y } }],
       formulas: [
