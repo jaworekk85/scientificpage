@@ -728,6 +728,21 @@ input[type="range"] {
   overflow-wrap: anywhere;
 }
 
+.celestial-editor-mode {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.celestial-editor-mode label {
+  margin: 0;
+}
+
 .celestial-body-editor {
   padding: 10px;
   border: 1px solid var(--border);
@@ -814,6 +829,85 @@ input[type="range"] {
   box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.3);
 }
 
+.celestial-tool-separator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.celestial-tool-separator::before,
+.celestial-tool-separator::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
+.celestial-tidal-toggle {
+  margin-top: 0;
+}
+
+.celestial-tidal-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -2px 0 10px 24px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.celestial-tidal-setting select {
+  width: 150px;
+}
+
+.celestial-spin-orbit-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: -2px 0 10px 24px;
+}
+
+.celestial-spin-orbit-settings label {
+  display: grid;
+  gap: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.celestial-controls-panel .celestial-spin-orbit-settings input {
+  width: 100%;
+}
+
+.celestial-debris-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: -2px 0 10px 24px;
+}
+
+.celestial-debris-settings label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.celestial-controls-panel .celestial-debris-settings input {
+  width: 100%;
+}
+
 .celestial-diagnostic-toggles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -892,7 +986,7 @@ input[type="range"] {
 
 .celestial-animation-controls {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto minmax(140px, auto);
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(140px, auto);
   gap: 10px;
   align-items: center;
   margin: 10px 0 12px;
@@ -918,9 +1012,7 @@ input[type="range"] {
 }
 
 .celestial-animation-controls .celestial-buffer-status {
-  min-width: 92px;
-  color: #64748b;
-  text-align: left;
+  display: none;
 }
 
 .celestial-animation-controls .celestial-collision-status {

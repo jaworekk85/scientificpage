@@ -26,7 +26,7 @@ Implemented:
 - Optional two-body tools: Runge-Lenz/eccentricity vector, Kepler I/II overlays, Kepler III measured-vs-theoretical comparison.
 - Lagrange tools: optional `L1`-`L5` overlay for the current reference pair; currently the two most massive bodies. Shows CR3BP assumptions/stability hints, pair eccentricity, and can toggle tiny test bodies at L-points.
 - Co-orbital presets: L4/L5 tadpole loops, true horseshoe-style co-orbital starter, and wide co-orbital loop starter. Rotating-pair view is the intended view for reading these.
-- Tidal-force first pass: optional overlay on the selected body showing differential gravitational acceleration vectors, plus a compact status panel with the dominant tidal source and tide/surface-gravity ratio.
+- Tidal-force first pass: optional overlay on the selected body showing the summed differential gravitational acceleration from all other bodies, plus a compact status panel and plot trace with dominant source, `near-far tide delta a / surface g`, and current/trajectory-peak tidal strength. Includes close-moon, eccentric-pulse, and spin-orbit exchange starter presets. Tidal arrows show real local `delta a` directions and are scaled against the strongest arrow over the current trajectory, not independently per animation frame.
 
 ## Design Rules
 
@@ -45,9 +45,12 @@ Implemented:
 ## Near Roadmap
 
 1. **Tidal forces module**
-   - Show tidal acceleration/gradient vectors around an extended body.
-   - Add a simple two-body spin-orbit model: spin slows, orbit changes, total angular momentum tracked.
-   - Demonstrate tidal locking and orbital recession/decay with clear simplifications.
+   - Theory/implementation notes live in `TIDAL_FORCES_THEORY_NOTES.md`.
+   - Keep validating the visual tidal overlay: vectors are local `delta a`; the scalar panel value is the near-side minus far-side `delta a`.
+   - Calibrate the first real planar spin-orbit exchange model. It uses moment of inertia, user-set `k2`, a constant-time-lag-style torque, and equal/opposite angular-momentum exchange between selected-body bulk spin and the relative orbit.
+   - Polish the teaching controls for `k2`, moment-of-inertia factor, and dissipation/lag; later expose the lag as a friendly `Q`/dissipation concept in the UI.
+   - Demonstrate tidal locking and orbital recession/decay by conserving total angular momentum between spin and orbit, while mechanical energy loss is tracked as heat.
+   - Roche-limit teaching overlay is now implemented with fluid/rigid Roche radius around the dominant tidal source, `distance / Roche limit` plot traces, warning text, and an optional accumulated-damage breakup model. Breakup disables the compact body and renders one selectable debris field. Debris can be tracer-only, a collective gravitating mass, or a limited fragment N-body cloud when `N_frag <= n0`; it is still not a full material/hydrodynamics solver.
 
 2. **Spacecraft / rocket module**
    - Add spacecraft/test-particle role: affected by gravity, optionally negligible back-reaction.
@@ -69,7 +72,7 @@ Implemented:
 
 ## Later Ideas
 
-- Hill sphere, Roche limit, resonances, perturbation precession, J2 satellite perturbation, Lambert solver / transfer windows.
+- Hill sphere, resonances, perturbation precession, J2 satellite perturbation, Lambert solver / transfer windows.
 
 ## Documentation Hygiene
 

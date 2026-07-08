@@ -35,6 +35,17 @@ function setupCelestialLab() {
     showKeplerThird: document.getElementById("celestialShowKeplerThird"),
     showLagrange: document.getElementById("celestialShowLagrange"),
     showTidalForces: document.getElementById("celestialShowTidalForces"),
+    tidalOverlayMode: document.getElementById("celestialTidalOverlayMode"),
+    showTidalLocking: document.getElementById("celestialShowTidalLocking"),
+    tidalK2: document.getElementById("celestialTidalK2"),
+    tidalLag: document.getElementById("celestialTidalLag"),
+    tidalInertia: document.getElementById("celestialTidalInertia"),
+    showRocheLimit: document.getElementById("celestialShowRocheLimit"),
+    rocheMode: document.getElementById("celestialRocheMode"),
+    rocheBreakup: document.getElementById("celestialRocheBreakup"),
+    rocheMaterial: document.getElementById("celestialRocheMaterial"),
+    debrisGravityMode: document.getElementById("celestialDebrisGravityMode"),
+    debrisSelfGravityLimit: document.getElementById("celestialDebrisSelfGravityLimit"),
     showTrails: document.getElementById("celestialShowTrails"),
     addPlanetBtn: document.getElementById("celestialAddPlanetBtn"),
     addStarBtn: document.getElementById("celestialAddStarBtn"),
@@ -60,6 +71,7 @@ function setupCelestialLab() {
     timeLabel: document.getElementById("celestialTimeLabel"),
     bufferStatus: document.getElementById("celestialBufferStatus"),
     collisionStatus: document.getElementById("celestialCollisionStatus"),
+    equation: document.getElementById("celestialEquation"),
     energy: document.getElementById("celestialMetricEnergy"),
     angularMomentum: document.getElementById("celestialMetricAngularMomentum"),
     metricEccentricity: document.getElementById("celestialMetricEccentricity"),
@@ -87,6 +99,7 @@ function setupCelestialLab() {
   let plotCursorState = null;
   let lastStatusPanelUpdate = 0;
   let lastPlotCursorUpdate = 0;
+  let tidalOverlayScaleCache = { key: "", maxDelta: 0, maxAcross: 0 };
 
   function emptyTrajectory() {
     return {
@@ -97,6 +110,7 @@ function setupCelestialLab() {
       computedSteps: 0,
       sampleEvery: 1,
       collisionEvents: [],
+      rocheEvents: [],
       complete: false
     };
   }
@@ -126,6 +140,31 @@ function setupCelestialLab() {
     const timeSpan = Math.max(1, numberValue(controls.timeSpan, 30));
     const speed = Math.max(0, numberValue(controls.speed, 1));
     return { g, h, massA, massB, semiMajor, eccentricity, timeSpan, speed };
+  }
+
+  function readTidalSpinModel() {
+    return {
+      k2: Math.max(0, Math.min(1.5, numberValue(controls.tidalK2, 0.3))),
+      timeLag: Math.max(0, Math.min(5, numberValue(controls.tidalLag, 0.55))),
+      inertiaAlpha: Math.max(0.05, Math.min(1, numberValue(controls.tidalInertia, 0.4)))
+    };
+  }
+
+  function readRocheBreakupModel() {
+    const material = controls.rocheMaterial?.value || "rubble";
+    const breakup = Boolean(controls.rocheBreakup?.checked);
+    const debrisGravityMode = controls.debrisGravityMode?.value || "collective";
+    const selfGravityLimit = Math.max(2, Math.min(80, Math.round(numberValue(controls.debrisSelfGravityLimit, 32))));
+    const fragmentCount = material === "rigid" ? 14 : (material === "fluid" ? 26 : 20);
+    return {
+      enabled: Boolean(controls.showRocheLimit?.checked || breakup),
+      breakup,
+      material,
+      debrisGravityMode,
+      selfGravityLimit,
+      resilience: material === "rigid" ? 2.4 : (material === "fluid" ? 0.72 : 1.15),
+      fragmentCount
+    };
   }
 
   function createBody(type, name, options = {}) {
@@ -268,11 +307,18 @@ function setupCelestialLab() {
   }
 
   function scenarioUsesDirectState(scenario) {
-    return scenario === "tadpoleL4" || scenario === "tadpoleL5" || scenario === "horseshoe" || scenario === "wideCoOrbital";
+    return scenario === "tadpoleL4"
+      || scenario === "tadpoleL5"
+      || scenario === "horseshoe"
+      || scenario === "wideCoOrbital";
   }
 
   function currentPresetScenario() {
     return controls.scenario?.value === "custom" ? activePreset : (controls.scenario?.value || activePreset);
+  }
+
+  function isTidalScenario(scenario) {
+    return scenario === "tidalStress" || scenario === "tidalEccentric" || scenario === "tidalLocking";
   }
 
   function markCustomSystem() {
@@ -292,6 +338,10 @@ function setupCelestialLab() {
   }
 
   function applyScenarioSuggestions(scenario) {
+    if (controls.showTidalForces) controls.showTidalForces.checked = false;
+    if (controls.showTidalLocking) controls.showTidalLocking.checked = false;
+    if (controls.showRocheLimit) controls.showRocheLimit.checked = false;
+    if (controls.rocheBreakup) controls.rocheBreakup.checked = false;
     if (scenarioUsesDirectState(scenario)) {
       if (controls.inputMode) controls.inputMode.value = "state";
       if (controls.viewFrame) controls.viewFrame.value = "rotatingPair";
@@ -307,6 +357,21 @@ function setupCelestialLab() {
     }
 
     if (controls.showLagrange) controls.showLagrange.checked = false;
+    if (isTidalScenario(scenario)) {
+      if (controls.inputMode) controls.inputMode.value = "orbit";
+      if (controls.viewFrame) controls.viewFrame.value = "rotatingPair";
+      if (controls.showTidalForces) controls.showTidalForces.checked = true;
+      if (controls.tidalOverlayMode) controls.tidalOverlayMode.value = "both";
+      if (controls.showTidalLocking) controls.showTidalLocking.checked = scenario === "tidalLocking";
+      if (controls.showTrails) controls.showTrails.checked = true;
+      if (controls.speed) controls.speed.value = "0.8";
+      if (controls.timeSpan) controls.timeSpan.value = scenario === "tidalEccentric" ? "42" : "24";
+      if (controls.h) controls.h.value = "0.004";
+      if (controls.energyK) controls.energyK.checked = true;
+      if (controls.energyU) controls.energyU.checked = true;
+      if (controls.energyTotal) controls.energyTotal.checked = true;
+      return;
+    }
     if (scenario === "twoBody") {
       if (controls.inputMode) controls.inputMode.value = "orbit";
       if (controls.viewFrame) controls.viewFrame.value = "inertial";
@@ -322,9 +387,65 @@ function setupCelestialLab() {
     }
   }
 
+  function tidalPresetBodies(model, variant) {
+    const planetMass = Math.max(4, model.massA * 0.4);
+    const moonMass = Math.max(0.035, Math.min(0.12, model.massB * 0.4));
+    const eccentric = variant === "tidalEccentric" ? 0.46 : 0;
+    const semiMajor = variant === "tidalEccentric"
+      ? Math.max(2.05, Math.min(2.8, model.semiMajor * 0.72))
+      : Math.max(1.55, Math.min(2.2, model.semiMajor * 0.55));
+    const distance = semiMajor * (1 - eccentric);
+    const totalMass = planetMass + moonMass;
+    const mu = Math.max(0.0001, model.g * totalMass);
+    const relativeSpeed = Math.sqrt(mu * (2 / Math.max(distance, 1e-9) - 1 / Math.max(semiMajor, 1e-9)));
+    const planetX = -distance * moonMass / totalMass;
+    const moonX = distance * planetMass / totalMass;
+    const planetVz = -relativeSpeed * moonMass / totalMass;
+    const moonVz = relativeSpeed * planetMass / totalMass;
+    const moonSpin = variant === "tidalLocking" ? 3.2 : (variant === "tidalEccentric" ? 1.35 : 1.8);
+    const planetName = variant === "tidalLocking" ? "Angular-momentum planet" : "Tide-raising planet";
+    const moonName = variant === "tidalEccentric" ? "Eccentric moon" : (variant === "tidalLocking" ? "Fast-spinning moon" : "Stretched moon");
+    return [
+      createBody("planet", planetName, {
+        mass: planetMass,
+        radius: 0.42,
+        orbit: 0,
+        texture: "jupiter",
+        x: planetX,
+        y: 0,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: planetVz,
+        spin: 0.45,
+        spinTilt: 4
+      }),
+      createBody("planet", moonName, {
+        mass: moonMass,
+        radius: 0.18,
+        orbit: semiMajor,
+        phase: 0,
+        eccentricity: eccentric,
+        texture: "mars",
+        x: moonX,
+        y: 0,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: moonVz,
+        spin: moonSpin,
+        spinTilt: -8
+      })
+    ];
+  }
+
   function presetBodiesForScenario(scenario, model) {
     if (scenario === "tadpoleL4" || scenario === "tadpoleL5" || scenario === "horseshoe" || scenario === "wideCoOrbital") {
       return coOrbitalPresetBodies(model, scenario);
+    }
+
+    if (scenario === "tidalStress" || scenario === "tidalEccentric" || scenario === "tidalLocking") {
+      return tidalPresetBodies(model, scenario);
     }
 
     if (scenario === "binary") {
@@ -485,10 +606,95 @@ function setupCelestialLab() {
       controls.showTidalForces.disabled = bodies.length < 2;
       if (bodies.length < 2) controls.showTidalForces.checked = false;
     }
+    if (controls.tidalOverlayMode) {
+      controls.tidalOverlayMode.disabled = bodies.length < 2;
+    }
+    if (controls.showTidalLocking) {
+      controls.showTidalLocking.disabled = bodies.length < 2;
+      if (bodies.length < 2) controls.showTidalLocking.checked = false;
+    }
+    if (controls.showRocheLimit) {
+      controls.showRocheLimit.disabled = bodies.length < 2;
+      if (bodies.length < 2) controls.showRocheLimit.checked = false;
+    }
+    if (controls.rocheMode) {
+      controls.rocheMode.disabled = bodies.length < 2;
+    }
+    if (controls.rocheBreakup) {
+      controls.rocheBreakup.disabled = bodies.length < 2;
+      if (bodies.length < 2) controls.rocheBreakup.checked = false;
+    }
+    if (controls.rocheMaterial) {
+      controls.rocheMaterial.disabled = bodies.length < 2;
+    }
+    if (controls.debrisGravityMode) {
+      controls.debrisGravityMode.disabled = bodies.length < 2;
+    }
+    if (controls.debrisSelfGravityLimit) {
+      controls.debrisSelfGravityLimit.disabled = bodies.length < 2 || controls.debrisGravityMode?.value !== "self";
+    }
+    const spinOrbitEnabled = bodies.length >= 2 && Boolean(controls.showTidalLocking?.checked);
+    [controls.tidalK2, controls.tidalLag, controls.tidalInertia].forEach((control) => {
+      if (control) control.disabled = !spinOrbitEnabled;
+    });
     lagrangePlaceButtons.forEach((button) => {
       button.disabled = bodies.length < 2;
     });
     updateLagrangePlaceButtons();
+  }
+
+  function updateCapabilityControls() {
+    syncInputModeUi();
+    updateCelestialEquation();
+  }
+
+  function celestialEquationMarkup(lines, params = [], notes = []) {
+    const lineMarkup = lines.map((line) => `<div class="equation-line">\\(${line}\\)</div>`).join("");
+    const paramMarkup = params.length
+      ? `<div class="equation-params">${params.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+      : "";
+    const notesMarkup = notes.length
+      ? `<div class="equation-notes">${notes.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+      : "";
+    return `${lineMarkup}${paramMarkup}${notesMarkup}`;
+  }
+
+  function updateCelestialEquation() {
+    if (!controls.equation) return;
+    const rocheModel = readRocheBreakupModel();
+    const lines = [
+      "\\dot{\\mathbf r}_i=\\mathbf v_i,\\quad \\dot{\\mathbf v}_i=\\sum_{j\\ne i}Gm_j{\\mathbf r_j-\\mathbf r_i\\over (|\\mathbf r_j-\\mathbf r_i|^2+\\epsilon^2)^{3/2}}"
+    ];
+    const params = ["compact bodies: mutual Newtonian gravity"];
+    const notes = [];
+    if (controls.showTidalForces?.checked || controls.showRocheLimit?.checked || controls.rocheBreakup?.checked) {
+      lines.push("\\Delta\\mathbf a(\\mathbf x)=\\mathbf a(\\mathbf r_i+\\mathbf x)-\\mathbf a(\\mathbf r_i),\\quad \\Delta a_{NF}=|\\Delta\\mathbf a(+R\\hat{\\mathbf s})-\\Delta\\mathbf a(-R\\hat{\\mathbf s})|");
+      params.push("tidal field: differential acceleration across selected body");
+    }
+    if (controls.showTidalLocking?.checked) {
+      lines.push("I=\\alpha mR^2,\\quad \\dot\\omega={\\tau\\over I},\\quad \\dot L_{orb}=-\\tau,\\quad \\dot E_{heat}=-(\\dot E_{spin}+\\dot E_{orb})");
+      params.push(`spin-orbit: k2=${readTidalSpinModel().k2.toFixed(2)}, lag=${readTidalSpinModel().timeLag.toFixed(2)}`);
+    }
+    if (controls.showRocheLimit?.checked || controls.rocheBreakup?.checked) {
+      lines.push("R_{fluid}=2.44R_s\\left({\\rho_s\\over\\rho_t}\\right)^{1/3},\\quad R_{rigid}=1.26R_s\\left({\\rho_s\\over\\rho_t}\\right)^{1/3}");
+      lines.push("\\dot D={S(R_{fluid}/d-1,\\,R_{rigid}/d-1,\\,material)\\over t_{dyn}},\\quad t_{dyn}=\\sqrt{R_t^3/(Gm_t)}");
+      params.push(`Roche material: ${rocheModel.material}`);
+    }
+    if (controls.rocheBreakup?.checked) {
+      lines.push("\\dot{\\mathbf r}_p=\\mathbf v_p,\\quad \\dot{\\mathbf v}_p=\\sum_jGm_j{\\mathbf r_j-\\mathbf r_p\\over (|\\mathbf r_j-\\mathbf r_p|^2+\\epsilon_d^2)^{3/2}}+\\mathbf a_{debris}");
+      if (rocheModel.debrisGravityMode === "self") {
+        lines.push("\\mathbf a_{debris,p}=\\sum_{q\\ne p}Gm_q{\\mathbf r_q-\\mathbf r_p\\over (|\\mathbf r_q-\\mathbf r_p|^2+\\epsilon_d^2)^{3/2}}\\quad(N_{frag}\\le n_0)");
+        params.push(`debris: fragment N-body if N <= ${rocheModel.selfGravityLimit}`);
+      } else if (rocheModel.debrisGravityMode === "collective") {
+        lines.push("\\dot{\\mathbf v}_i\\leftarrow\\dot{\\mathbf v}_i+GM_D{\\mathbf R_D-\\mathbf r_i\\over (|\\mathbf R_D-\\mathbf r_i|^2+\\epsilon_d^2)^{3/2}}");
+        params.push("debris: collective center-of-mass back-reaction");
+      } else {
+        params.push("debris: tracer cloud, no back-reaction");
+      }
+      notes.push("Fragment cloud remains one selectable debris object; individual particles are internal degrees of freedom.");
+    }
+    controls.equation.innerHTML = celestialEquationMarkup(lines, params, notes);
+    if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([controls.equation]).catch(() => {});
   }
 
   function updateSelectedBodyFromEditor() {
@@ -675,6 +881,16 @@ function setupCelestialLab() {
     return length > 1e-12 ? scaleVec(a, 1 / length) : fallback;
   }
 
+  function rotateVecAroundAxis(vector, axis, angle) {
+    const unit = normalizeVec(axis, vec(0, 1, 0));
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return addVec(
+      addVec(scaleVec(vector, cos), scaleVec(crossVec(unit, vector), sin)),
+      scaleVec(unit, dotVec(unit, vector) * (1 - cos))
+    );
+  }
+
   function bodyState(body) {
     return {
       x: Number(body.x) || 0,
@@ -685,6 +901,10 @@ function setupCelestialLab() {
       vz: Number(body.vz) || 0,
       mass: Math.max(0, Number(body.mass) || 0),
       radius: Math.max(0, Number(body.radius) || 0),
+      spinOmega: Number(body.spin) || 0,
+      spinPhase: 0,
+      tidalHeat: 0,
+      rocheDamage: 0,
       active: body.active !== false
     };
   }
@@ -700,6 +920,13 @@ function setupCelestialLab() {
 
   function cloneStates(states) {
     return states.map((state) => ({ ...state }));
+  }
+
+  function cloneDebrisFields(fields) {
+    return (fields || []).map((field) => ({
+      ...field,
+      particles: (field.particles || []).map((particle) => ({ ...particle }))
+    }));
   }
 
   function stateMass(state, index) {
@@ -969,6 +1196,85 @@ function setupCelestialLab() {
     return parts;
   }
 
+  function energyVelocityForDebrisParticle(states, particle) {
+    const velocity = vec(particle.vx, particle.vy, particle.vz);
+    const frame = controls.viewFrame?.value || "inertial";
+    if (frame === "selected") {
+      const selectedIndex = bodies.findIndex((body) => body.id === selectedBodyId);
+      const selectedState = states[selectedIndex];
+      return selectedState ? subVec(velocity, vec(selectedState.vx, selectedState.vy, selectedState.vz)) : velocity;
+    }
+    if (frame === "barycenter") return subVec(velocity, baryVelocityForStates(states));
+    if (frame === "rotatingPair") {
+      const pair = pairKinematics(makeSample(0, states));
+      if (!pair) return velocity;
+      const position = vec(particle.x, particle.y, particle.z);
+      const relativeVelocity = subVec(velocity, pair.baryVelocity);
+      const frameVelocity = crossVec(pair.omegaVector, subVec(position, pair.bary));
+      return subVec(relativeVelocity, frameVelocity);
+    }
+    return velocity;
+  }
+
+  function debrisContributionParts(model, sample, states) {
+    const parts = states.map(() => ({
+      kinetic: 0,
+      potentialShare: 0,
+      angularVector: vec(0, 0, 0),
+      angularMagnitude: 0,
+      energy: 0
+    }));
+    let kinetic = 0;
+    let potential = 0;
+    let angular = vec(0, 0, 0);
+    (sample?.debris || []).forEach((field) => {
+      const targetIndex = Math.max(0, Math.min(parts.length - 1, Number(field.targetIndex) || 0));
+      const particles = field.particles || [];
+      particles.forEach((particle) => {
+        const mass = Math.max(0, Number(particle.mass) || 0);
+        if (mass <= 0) return;
+        const velocity = vec(particle.vx, particle.vy, particle.vz);
+        const energyVelocity = energyVelocityForDebrisParticle(states, particle);
+        const particleKinetic = 0.5 * mass * dotVec(energyVelocity, energyVelocity);
+        const particleAngular = scaleVec(crossVec(vec(particle.x, particle.y, particle.z), velocity), mass);
+        kinetic += particleKinetic;
+        angular = addVec(angular, particleAngular);
+        parts[targetIndex].kinetic += particleKinetic;
+        parts[targetIndex].angularVector = addVec(parts[targetIndex].angularVector, particleAngular);
+
+        states.forEach((state, stateIndex) => {
+          if (!stateActive(state, stateIndex)) return;
+          const r = normVec(subVec(state, particle));
+          if (r <= 1e-8) return;
+          const pairPotential = -model.g * stateMass(state, stateIndex) * mass / r;
+          potential += pairPotential;
+          parts[stateIndex].potentialShare += pairPotential * 0.5;
+          parts[targetIndex].potentialShare += pairPotential * 0.5;
+        });
+      });
+
+      if ((field.gravityMode || "tracer") === "self") {
+        for (let i = 0; i < particles.length; i += 1) {
+          for (let j = i + 1; j < particles.length; j += 1) {
+            const massA = Math.max(0, Number(particles[i].mass) || 0);
+            const massB = Math.max(0, Number(particles[j].mass) || 0);
+            if (massA <= 0 || massB <= 0) continue;
+            const r = normVec(subVec(particles[j], particles[i]));
+            if (r <= 1e-8) continue;
+            const pairPotential = -model.g * massA * massB / r;
+            potential += pairPotential;
+            parts[targetIndex].potentialShare += pairPotential;
+          }
+        }
+      }
+    });
+    parts.forEach((part) => {
+      part.angularMagnitude = normVec(part.angularVector);
+      part.energy = part.kinetic + part.potentialShare;
+    });
+    return { kinetic, potential, angularVector: angular, parts };
+  }
+
   function computeMetrics(model, sample = null) {
     const states = sample ? sample.bodies : bodies.map(bodyState);
     let kinetic = 0;
@@ -998,6 +1304,21 @@ function setupCelestialLab() {
       }
     }
     const bodyContributions = bodyContributionParts(model, states);
+    const debrisContributions = sample ? debrisContributionParts(model, sample, states) : null;
+    if (debrisContributions) {
+      kinetic += debrisContributions.kinetic;
+      potential += debrisContributions.potential;
+      angular = addVec(angular, debrisContributions.angularVector);
+      bodyContributions.forEach((part, index) => {
+        const debrisPart = debrisContributions.parts[index];
+        if (!debrisPart) return;
+        part.kinetic += debrisPart.kinetic;
+        part.potentialShare += debrisPart.potentialShare;
+        part.angularVector = addVec(part.angularVector, debrisPart.angularVector);
+        part.angularMagnitude = normVec(part.angularVector);
+        part.energy = part.kinetic + part.potentialShare;
+      });
+    }
 
     const metrics = {
       energy: kinetic + potential,
@@ -1036,12 +1357,23 @@ function setupCelestialLab() {
   }
 
   function makeTrajectorySignature(model) {
+    const tidalSpin = readTidalSpinModel();
     return JSON.stringify({
       g: model.g,
       h: model.h,
       timeSpan: model.timeSpan,
       method: controls.method.value,
       collisionMode: controls.collisionMode?.value || "detect",
+      tidalLocking: Boolean(controls.showTidalLocking?.checked),
+      tidalK2: tidalSpin.k2,
+      tidalLag: tidalSpin.timeLag,
+      tidalInertia: tidalSpin.inertiaAlpha,
+      rocheVisible: Boolean(controls.showRocheLimit?.checked),
+      rocheBreakup: Boolean(controls.rocheBreakup?.checked),
+      rocheMaterial: controls.rocheMaterial?.value || "rubble",
+      debrisGravityMode: controls.debrisGravityMode?.value || "collective",
+      debrisSelfGravityLimit: numberValue(controls.debrisSelfGravityLimit, 32),
+      selectedBodyId,
       bodies: bodies.map((body) => ({
         id: body.id,
         mass: body.mass,
@@ -1050,15 +1382,18 @@ function setupCelestialLab() {
         z: body.z,
         vx: body.vx,
         vy: body.vy,
-        vz: body.vz
+        vz: body.vz,
+        spin: body.spin,
+        radius: body.radius
       }))
     });
   }
 
-  function makeSample(t, states) {
+  function makeSample(t, states, debrisFields = []) {
     return {
       t,
-      bodies: cloneStates(states)
+      bodies: cloneStates(states),
+      debris: cloneDebrisFields(debrisFields)
     };
   }
 
@@ -1117,8 +1452,10 @@ function setupCelestialLab() {
     return best;
   }
 
-  function tidalDiagnosticsForSample(sample, model) {
-    const targetIndex = bodies.findIndex((body) => body.id === selectedBodyId);
+  function tidalDiagnosticsForSample(sample, model, requestedTargetIndex = null) {
+    const targetIndex = requestedTargetIndex == null
+      ? bodies.findIndex((body) => body.id === selectedBodyId)
+      : requestedTargetIndex;
     const targetBody = bodies[targetIndex];
     const target = sample?.bodies?.[targetIndex];
     if (!targetBody || !target || !stateActive(target, targetIndex)) return null;
@@ -1153,17 +1490,574 @@ function setupCelestialLab() {
     const far = probes[1].delta;
     const across = normVec(subVec(near, far));
     const surfaceGravity = model.g * stateMass(target, targetIndex) / Math.max(radius * radius, 1e-9);
+    const sourcePull = source.strength * source.distance;
     return {
       targetIndex,
       targetBody,
+      targetState: target,
       source,
       sourceBody: bodies[source.index],
       radius,
       probes,
       across,
       surfaceGravity,
-      ratio: surfaceGravity > 0 ? across / surfaceGravity : Number.NaN
+      sourcePull,
+      ratio: surfaceGravity > 0 ? across / surfaceGravity : Number.NaN,
+      sourceRatio: sourcePull > 0 ? across / sourcePull : Number.NaN
     };
+  }
+
+  function rocheDiagnosticsFromTidal(diagnostics) {
+    if (!diagnostics?.source?.state) return null;
+    const targetState = diagnostics.targetState;
+    const sourceState = diagnostics.source.state;
+    const targetIndex = diagnostics.targetIndex;
+    const sourceIndex = diagnostics.source.index;
+    if (!targetState || !sourceState) return null;
+    const targetMass = stateMass(targetState, targetIndex);
+    const sourceMass = stateMass(sourceState, sourceIndex);
+    if (targetMass <= 0 || sourceMass <= 0) return null;
+    const targetRadius = Math.max(diagnostics.radius, 1e-6);
+    const sourceRadius = Math.max(stateRadius(sourceState, sourceIndex), 1e-6);
+    const sourceDensity = sourceMass / Math.max(sourceRadius ** 3, 1e-12);
+    const targetDensity = Math.max(targetMass, 1e-9) / Math.max(targetRadius ** 3, 1e-12);
+    const densityRatio = sourceDensity / Math.max(targetDensity, 1e-12);
+    const fluid = 2.44 * sourceRadius * Math.cbrt(densityRatio);
+    const rigid = 1.26 * sourceRadius * Math.cbrt(densityRatio);
+    return {
+      sourceIndex,
+      targetIndex,
+      sourceState,
+      distance: diagnostics.source.distance,
+      sourceRadius,
+      targetRadius,
+      sourceDensity,
+      targetDensity,
+      fluid,
+      rigid,
+      fluidRatio: diagnostics.source.distance / Math.max(fluid, 1e-9),
+      rigidRatio: diagnostics.source.distance / Math.max(rigid, 1e-9)
+    };
+  }
+
+  function tidalOverlayScaleFor(model, fallbackDiagnostics = null) {
+    const key = `${trajectory.signature}:${trajectory.samples.length}:${selectedBodyId}`;
+    if (tidalOverlayScaleCache.key === key) return tidalOverlayScaleCache;
+    const samples = trajectory.samples.length ? trajectory.samples : [];
+    const stride = Math.max(1, Math.floor(samples.length / 260));
+    let maxDelta = 0;
+    let maxAcross = 0;
+    const inspect = (sample) => {
+      const diagnostics = tidalDiagnosticsForSample(sample, model);
+      if (!diagnostics) return;
+      diagnostics.probes.forEach((probe) => {
+        maxDelta = Math.max(maxDelta, normVec(probe.delta));
+      });
+      maxAcross = Math.max(maxAcross, diagnostics.across);
+    };
+    for (let index = 0; index < samples.length; index += stride) inspect(samples[index]);
+    if (samples.length) inspect(samples[samples.length - 1]);
+    if (fallbackDiagnostics) {
+      fallbackDiagnostics.probes.forEach((probe) => {
+        maxDelta = Math.max(maxDelta, normVec(probe.delta));
+      });
+      maxAcross = Math.max(maxAcross, fallbackDiagnostics.across);
+    }
+    tidalOverlayScaleCache = { key, maxDelta, maxAcross };
+    return tidalOverlayScaleCache;
+  }
+
+  function spinOrbitMomentOfInertia(state, index, tidalSpin = readTidalSpinModel()) {
+    const alpha = tidalSpin.inertiaAlpha;
+    const mass = stateMass(state, index);
+    const radius = Math.max(stateRadius(state, index), 1e-6);
+    return alpha * mass * radius * radius;
+  }
+
+  function spinOrbitPairForStates(states, model) {
+    if (!controls.showTidalLocking?.checked) return null;
+    const targetIndex = bodies.findIndex((body) => body.id === selectedBodyId);
+    const target = states[targetIndex];
+    if (!target || !stateActive(target, targetIndex)) return null;
+    const source = strongestTidalSource({ bodies: states }, targetIndex, model);
+    if (!source || source.index === targetIndex) return null;
+    const sourceState = states[source.index];
+    if (!sourceState || !stateActive(sourceState, source.index)) return null;
+    return { targetIndex, sourceIndex: source.index, target, source: sourceState };
+  }
+
+  function relativeOrbitScalars(target, source, targetMass, sourceMass, model) {
+    const r = subVec(target, source);
+    const v = subVec(vec(target.vx, target.vy, target.vz), vec(source.vx, source.vy, source.vz));
+    const distance = normVec(r);
+    if (distance <= 1e-9) return null;
+    const hVec = crossVec(r, v);
+    const hMag = normVec(hVec);
+    const orbitRate = hMag / Math.max(distance * distance, 1e-9);
+    const totalMass = targetMass + sourceMass;
+    const reducedMass = totalMass > 0 ? (targetMass * sourceMass) / totalMass : 0;
+    const orbitalEnergy = 0.5 * reducedMass * dotVec(v, v) - (model.g * targetMass * sourceMass) / distance;
+    return { r, v, distance, hVec, hMag, orbitRate, totalMass, reducedMass, orbitalEnergy };
+  }
+
+  function applyTidalSpinOrbitStep(states, h, model) {
+    const pair = spinOrbitPairForStates(states, model);
+    if (!pair || h <= 0) {
+      return states.map((state, index) => ({
+        ...state,
+        spinPhase: (Number(state.spinPhase) || 0) + (Number(state.spinOmega ?? bodies[index]?.spin) || 0) * h
+      }));
+    }
+
+    const next = cloneStates(states);
+    const target = next[pair.targetIndex];
+    const source = next[pair.sourceIndex];
+    const targetMass = stateMass(target, pair.targetIndex);
+    const sourceMass = stateMass(source, pair.sourceIndex);
+    const orbit = relativeOrbitScalars(target, source, targetMass, sourceMass, model);
+    if (!orbit || orbit.reducedMass <= 0 || orbit.hMag <= 1e-12) return next;
+
+    const tidalSpin = readTidalSpinModel();
+    const inertia = spinOrbitMomentOfInertia(target, pair.targetIndex, tidalSpin);
+    if (inertia <= 0) return next;
+    const omega = Number(target.spinOmega ?? bodies[pair.targetIndex]?.spin) || 0;
+    const spinEnergyBefore = 0.5 * inertia * omega * omega;
+    const totalMechanicalBefore = spinEnergyBefore + orbit.orbitalEnergy;
+    const torqueCoefficient = 3 * tidalSpin.k2 * model.g * sourceMass * sourceMass * Math.pow(stateRadius(target, pair.targetIndex), 5) * tidalSpin.timeLag
+      / Math.max(Math.pow(orbit.distance, 6), 1e-9);
+    const spinTorque = -torqueCoefficient * (omega - orbit.orbitRate);
+    const rawDeltaOmega = (spinTorque * h) / inertia;
+    const maxDeltaOmega = Math.max(0.05, Math.abs(omega - orbit.orbitRate) * 0.35);
+    const deltaOmega = Math.max(-maxDeltaOmega, Math.min(maxDeltaOmega, rawDeltaOmega));
+    const nextOmega = omega + deltaOmega;
+    const deltaSpinL = inertia * deltaOmega;
+    const deltaOrbitL = -deltaSpinL;
+
+    const hUnit = normalizeVec(orbit.hVec, vec(0, 1, 0));
+    const rUnit = normalizeVec(orbit.r, vec(1, 0, 0));
+    const tangent = normalizeVec(crossVec(hUnit, rUnit), vec(0, 0, 1));
+    const deltaRelativeSpeed = deltaOrbitL / Math.max(orbit.reducedMass * orbit.distance, 1e-9);
+    const targetShare = sourceMass / Math.max(orbit.totalMass, 1e-9);
+    const sourceShare = targetMass / Math.max(orbit.totalMass, 1e-9);
+
+    target.vx += tangent.x * deltaRelativeSpeed * targetShare;
+    target.vy += tangent.y * deltaRelativeSpeed * targetShare;
+    target.vz += tangent.z * deltaRelativeSpeed * targetShare;
+    source.vx -= tangent.x * deltaRelativeSpeed * sourceShare;
+    source.vy -= tangent.y * deltaRelativeSpeed * sourceShare;
+    source.vz -= tangent.z * deltaRelativeSpeed * sourceShare;
+
+    target.spinOmega = nextOmega;
+    target.spinPhase = (Number(target.spinPhase) || 0) + nextOmega * h;
+    const orbitAfter = relativeOrbitScalars(target, source, targetMass, sourceMass, model);
+    const spinEnergyAfter = 0.5 * inertia * nextOmega * nextOmega;
+    const totalMechanicalAfter = spinEnergyAfter + (orbitAfter?.orbitalEnergy ?? orbit.orbitalEnergy);
+    const heatGain = Math.max(0, totalMechanicalBefore - totalMechanicalAfter);
+    target.tidalHeat = (Number(target.tidalHeat) || 0) + heatGain;
+    target.tidalTorque = spinTorque;
+    target.tidalOrbitRate = orbit.orbitRate;
+    target.tidalSpinRatio = orbit.orbitRate > 1e-9 ? nextOmega / orbit.orbitRate : Number.NaN;
+    target.tidalBulkSpinL = inertia * nextOmega;
+    target.tidalOrbitL = orbitAfter ? orbit.reducedMass * orbitAfter.hMag : orbit.reducedMass * orbit.hMag;
+    target.tidalTotalL = target.tidalBulkSpinL + target.tidalOrbitL;
+    target.tidalK2 = tidalSpin.k2;
+    target.tidalLag = tidalSpin.timeLag;
+    target.tidalInertiaAlpha = tidalSpin.inertiaAlpha;
+
+    next.forEach((state, index) => {
+      if (index === pair.targetIndex) return;
+      state.spinPhase = (Number(state.spinPhase) || 0) + (Number(state.spinOmega ?? bodies[index]?.spin) || 0) * h;
+    });
+    return next;
+  }
+
+  function spinOrbitDiagnosticsForSample(sample, model) {
+    const diagnostics = tidalDiagnosticsForSample(sample, model);
+    if (!diagnostics) return null;
+    const targetIndex = diagnostics.targetIndex;
+    const sourceIndex = diagnostics.source.index;
+    const target = sample.bodies[targetIndex];
+    const source = sample.bodies[sourceIndex];
+    const targetBody = bodies[targetIndex];
+    if (!target || !source || !targetBody) return null;
+    const r = subVec(target, source);
+    const v = subVec(
+      vec(target.vx, target.vy, target.vz),
+      vec(source.vx, source.vy, source.vz)
+    );
+    const distance = normVec(r);
+    if (distance <= 1e-9) return null;
+    const orbitalAngularVector = crossVec(r, v);
+    const orbitalRate = normVec(orbitalAngularVector) / Math.max(distance * distance, 1e-9);
+    const spinOmega = Number(target.spinOmega ?? targetBody.spin) || 0;
+    const spinRatio = orbitalRate > 1e-9 ? spinOmega / orbitalRate : Number.NaN;
+    const spinState = Math.abs(spinRatio - 1) < 0.04
+      ? "near synchronous"
+      : spinRatio > 1
+        ? "fast prograde spin: torque pushes orbit outward"
+        : spinRatio >= 0
+          ? "slow prograde spin: torque drains orbit"
+          : "retrograde spin: strong tidal braking";
+    return {
+      ...diagnostics,
+      spinOmega,
+      spinRatio,
+      orbitalRate,
+      torque: Number(target.tidalTorque) || 0,
+      heat: Number(target.tidalHeat) || 0,
+      bulkSpinL: Number(target.tidalBulkSpinL) || 0,
+      orbitL: Number(target.tidalOrbitL) || 0,
+      totalL: Number(target.tidalTotalL) || 0,
+      k2: Number(target.tidalK2 ?? readTidalSpinModel().k2) || 0,
+      timeLag: Number(target.tidalLag ?? readTidalSpinModel().timeLag) || 0,
+      inertiaAlpha: Number(target.tidalInertiaAlpha ?? readTidalSpinModel().inertiaAlpha) || 0,
+      spinState
+    };
+  }
+
+  function spinOrbitSeries(samples, model) {
+    const lockProgress = [];
+    const spinRatio = [];
+    const orbitScale = [];
+    const heat = [];
+    const totalL = [];
+    const initialOrbitL = (() => {
+      const diagnostics = spinOrbitDiagnosticsForSample(samples[0], model);
+      return diagnostics && Number.isFinite(diagnostics.orbitL) && Math.abs(diagnostics.orbitL) > 1e-9
+        ? diagnostics.orbitL
+        : 1;
+    })();
+    samples.forEach((sample) => {
+      const diagnostics = spinOrbitDiagnosticsForSample(sample, model);
+      const ratio = diagnostics && Number.isFinite(diagnostics.spinRatio) ? diagnostics.spinRatio : Number.NaN;
+      spinRatio.push(ratio);
+      lockProgress.push(Number.isFinite(ratio) ? 1 / (1 + Math.abs(ratio - 1)) : Number.NaN);
+      orbitScale.push(diagnostics && Number.isFinite(diagnostics.orbitL) ? diagnostics.orbitL / initialOrbitL : Number.NaN);
+      heat.push(diagnostics && Number.isFinite(diagnostics.heat) ? diagnostics.heat : Number.NaN);
+      totalL.push(diagnostics && Number.isFinite(diagnostics.totalL) ? diagnostics.totalL : Number.NaN);
+    });
+    return { lockProgress, spinRatio, orbitScale, heat, totalL };
+  }
+
+  function rocheSeriesFromDiagnostics(tidalDiagnostics) {
+    const fluidRatio = [];
+    const rigidRatio = [];
+    tidalDiagnostics.forEach((diagnostics) => {
+      const roche = rocheDiagnosticsFromTidal(diagnostics);
+      fluidRatio.push(roche ? roche.fluidRatio : Number.NaN);
+      rigidRatio.push(roche ? roche.rigidRatio : Number.NaN);
+    });
+    return { fluidRatio, rigidRatio };
+  }
+
+  function rocheDamageSeries(samples, model) {
+    const breakupModel = readRocheBreakupModel();
+    const damageByBody = bodies.map(() => 0);
+    const selectedDamage = [];
+    const maxDamage = [];
+    const selectedIndex = Math.max(0, bodies.findIndex((body) => body.id === selectedBodyId));
+    samples.forEach((sample, sampleIndex) => {
+      const previous = samples[Math.max(0, sampleIndex - 1)];
+      const dt = sampleIndex === 0 ? 0 : Math.max(0, sample.t - previous.t);
+      bodies.forEach((body, bodyIndex) => {
+        if (body.type === "star") {
+          damageByBody[bodyIndex] = 0;
+          return;
+        }
+        const state = sample.bodies[bodyIndex];
+        if (!stateActive(state, bodyIndex)) {
+          damageByBody[bodyIndex] = Math.max(damageByBody[bodyIndex], Number(state?.rocheDamage) || 0);
+          return;
+        }
+        const diagnostics = tidalDiagnosticsForSample(sample, model, bodyIndex);
+        const roche = rocheDiagnosticsFromTidal(diagnostics);
+        const severity = rocheDamageSeverity(roche, breakupModel);
+        if (severity > 0 && dt > 0) {
+          const tDyn = Math.sqrt(Math.max(Math.pow(stateRadius(state, bodyIndex), 3), 1e-12) / Math.max(model.g * stateMass(state, bodyIndex), 1e-12));
+          damageByBody[bodyIndex] += severity * dt / Math.max(tDyn * breakupModel.resilience, 1e-6);
+        } else if (dt > 0) {
+          damageByBody[bodyIndex] = Math.max(0, damageByBody[bodyIndex] - dt * 0.025);
+        }
+        damageByBody[bodyIndex] = Math.max(damageByBody[bodyIndex], Number(state?.rocheDamage) || 0);
+        damageByBody[bodyIndex] = Math.min(1, damageByBody[bodyIndex]);
+      });
+      selectedDamage.push(damageByBody[selectedIndex] || 0);
+      maxDamage.push(Math.max(0, ...damageByBody));
+    });
+    return { selectedDamage, maxDamage };
+  }
+
+  function seededUnit(seed) {
+    return Math.sin(seed * 12.9898 + 78.233) * 43758.5453 % 1;
+  }
+
+  function positiveSeededUnit(seed) {
+    const value = seededUnit(seed);
+    return value < 0 ? value + 1 : value;
+  }
+
+  function debrisPaletteForBody(body, material) {
+    if (material === "rigid") {
+      return body?.texture === "mars"
+        ? ["#9ca3af", "#d1d5db", "#b45309", "#7c2d12"]
+        : ["#9ca3af", "#e5e7eb", "#d8b383", "#8f573b"];
+    }
+    if (body?.type === "star") return ["#fbbf24", "#fde68a", "#f97316", "#fff7ad"];
+    if (body?.texture === "mars") return ["#8f3d24", "#c46b3e", "#f97316", "#6f2d1b", "#fed7aa"];
+    return ["#d8b383", "#f1d5a5", "#b46b42", "#8f573b", "#f9e8c7"];
+  }
+
+  function debrisColorForParticle(body, material, seed) {
+    const palette = debrisPaletteForBody(body, material);
+    const index = Math.min(palette.length - 1, Math.floor(positiveSeededUnit(seed + 7) * palette.length));
+    return palette[index];
+  }
+
+  function rocheDamageSeverity(roche, breakupModel) {
+    if (!roche) return 0;
+    const fluidDepth = Math.max(0, 1 / Math.max(roche.fluidRatio, 1e-9) - 1);
+    const rigidDepth = Math.max(0, 1 / Math.max(roche.rigidRatio, 1e-9) - 1);
+    if (breakupModel.material === "rigid") {
+      return fluidDepth * 0.55 + Math.pow(rigidDepth, 1.08) * 5.8;
+    }
+    const fluidTerm = fluidDepth * (breakupModel.material === "fluid" ? 2.8 : 1.35);
+    const rigidTerm = Math.pow(rigidDepth, 1.08) * (breakupModel.material === "fluid" ? 6.5 : 5.8);
+    return fluidTerm + rigidTerm;
+  }
+
+  function debrisFieldCenterOfMass(field) {
+    const particles = field?.particles || [];
+    let totalMass = 0;
+    let position = vec(0, 0, 0);
+    let velocity = vec(0, 0, 0);
+    particles.forEach((particle) => {
+      const mass = Math.max(0, Number(particle.mass) || 0);
+      totalMass += mass;
+      position = addVec(position, scaleVec(particle, mass));
+      velocity = addVec(velocity, scaleVec(vec(particle.vx, particle.vy, particle.vz), mass));
+    });
+    if (totalMass <= 0) return null;
+    return {
+      mass: totalMass,
+      x: position.x / totalMass,
+      y: position.y / totalMass,
+      z: position.z / totalMass,
+      vx: velocity.x / totalMass,
+      vy: velocity.y / totalMass,
+      vz: velocity.z / totalMass
+    };
+  }
+
+  function applyDebrisBackreactionStep(states, debrisFields, h, model) {
+    if (!debrisFields?.length) return states;
+    const next = cloneStates(states);
+    next.forEach((state, stateIndex) => {
+      if (!stateActive(state, stateIndex)) return;
+      let acceleration = vec(0, 0, 0);
+      debrisFields.forEach((field) => {
+        const gravityMode = field.gravityMode || "tracer";
+        if (gravityMode === "tracer") return;
+        const sources = gravityMode === "self"
+          ? (field.particles || [])
+          : [debrisFieldCenterOfMass(field)].filter(Boolean);
+        sources.forEach((source) => {
+          const mass = Math.max(0, Number(source.mass) || 0);
+          if (mass <= 0) return;
+          const offset = subVec(source, state);
+          const softening = Math.max(Number(field.softening) || 0.02, 0.02);
+          const r2 = dotVec(offset, offset) + softening * softening;
+          acceleration = addVec(acceleration, scaleVec(offset, model.g * mass / Math.pow(r2, 1.5)));
+        });
+      });
+      state.vx += acceleration.x * h;
+      state.vy += acceleration.y * h;
+      state.vz += acceleration.z * h;
+    });
+    return next;
+  }
+
+  function updateDebrisFields(debrisFields, states, h, model) {
+    return cloneDebrisFields(debrisFields).map((field) => {
+      const nextAge = (field.age || 0) + h;
+      const birthDuration = Math.max(0.25, Number(field.birthDuration) || 0.8);
+      return {
+        ...field,
+        age: nextAge,
+        particles: field.particles.map((particle, particleIndex) => {
+          let acceleration = vec(0, 0, 0);
+          states.forEach((state, index) => {
+            if (!stateActive(state, index)) return;
+            const offset = subVec(state, particle);
+            const r2 = dotVec(offset, offset) + 1e-6;
+            const invR3 = 1 / Math.pow(r2, 1.5);
+            acceleration = addVec(acceleration, scaleVec(offset, model.g * stateMass(state, index) * invR3));
+          });
+          if (field.gravityMode === "self") {
+            field.particles.forEach((other, otherIndex) => {
+              if (otherIndex === particleIndex) return;
+              const mass = Math.max(0, Number(other.mass) || 0);
+              if (mass <= 0) return;
+              const offset = subVec(other, particle);
+              const softening = Math.max(Number(field.softening) || 0.02, 0.02);
+              const r2 = dotVec(offset, offset) + softening * softening;
+              acceleration = addVec(acceleration, scaleVec(offset, model.g * mass / Math.pow(r2, 1.5)));
+            });
+          }
+          const vx = particle.vx + acceleration.x * h;
+          const vy = particle.vy + acceleration.y * h;
+          const vz = particle.vz + acceleration.z * h;
+          const localAge = Math.max(0, nextAge - (Number(particle.birthDelay) || 0));
+          const fadeIn = Math.max(0, Math.min(1, localAge / birthDuration));
+          const baseOpacity = Math.max(0.2, Math.min(0.92, Number(particle.baseOpacity) || 0.82));
+          return {
+            ...particle,
+            x: particle.x + vx * h,
+            y: particle.y + vy * h,
+            z: particle.z + vz * h,
+            vx,
+            vy,
+            vz,
+            opacity: Math.max(0.04, baseOpacity * fadeIn)
+          };
+        })
+      };
+    });
+  }
+
+  function createRocheDebrisField(states, targetIndex, sourceIndex, roche, breakupModel, t, model) {
+    const target = states[targetIndex];
+    const source = states[sourceIndex];
+    if (!target || !source) return null;
+    const targetBody = bodies[targetIndex];
+    const targetRadius = Math.max(stateRadius(target, targetIndex), 1e-5);
+    const targetMass = Math.max(stateMass(target, targetIndex), 1e-9);
+    const radial = normalizeVec(subVec(target, source), vec(1, 0, 0));
+    const relativeVelocity = subVec(vec(target.vx, target.vy, target.vz), vec(source.vx, source.vy, source.vz));
+    const normal = normalizeVec(crossVec(radial, relativeVelocity), vec(0, 1, 0));
+    const tangent = normalizeVec(crossVec(normal, radial), vec(0, 0, 1));
+    const orbitShear = normVec(relativeVelocity) * targetRadius / Math.max(roche.distance, targetRadius);
+    const impulse = Math.max(orbitShear * 0.42, targetRadius * 0.012);
+    const count = breakupModel.fragmentCount;
+    const particleMass = targetMass / Math.max(count, 1);
+    const gravityMode = breakupModel.debrisGravityMode === "self" && count <= breakupModel.selfGravityLimit
+      ? "self"
+      : breakupModel.debrisGravityMode === "tracer"
+        ? "tracer"
+        : "collective";
+    const sourcePull = normalizeVec(subVec(source, target), vec(-1, 0, 0));
+    const particles = Array.from({ length: count }, (_, index) => {
+      const slot = count === 1 ? 0 : index / (count - 1);
+      const centered = slot * 2 - 1;
+      const seed = (targetIndex + 1) * 1000 + index * 37 + Math.round(t * 100);
+      const jitterA = positiveSeededUnit(seed) - 0.5;
+      const jitterB = positiveSeededUnit(seed + 13) - 0.5;
+      const side = index % 2 === 0 ? 1 : -1;
+      const radialOffset = centered * targetRadius * 0.92;
+      const tangentOffset = jitterA * targetRadius * 0.34;
+      const normalOffset = jitterB * targetRadius * 0.22;
+      const position = addVec(
+        target,
+        addVec(
+          scaleVec(radial, radialOffset),
+          addVec(scaleVec(tangent, tangentOffset), scaleVec(normal, normalOffset))
+        )
+      );
+      const velocity = addVec(
+        vec(target.vx, target.vy, target.vz),
+        addVec(
+          scaleVec(radial, centered * impulse * 0.2),
+          addVec(
+            scaleVec(tangent, (-centered * 0.55 + jitterA * 0.18) * impulse),
+            scaleVec(normal, side * (0.06 + Math.abs(jitterB) * 0.08) * impulse)
+          )
+        )
+      );
+      return {
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        vx: velocity.x,
+        vy: velocity.y,
+        vz: velocity.z,
+        mass: particleMass,
+        radius: targetRadius * (0.09 + positiveSeededUnit(seed + 29) * 0.1),
+        color: debrisColorForParticle(targetBody, breakupModel.material, seed),
+        baseOpacity: 0.72 + positiveSeededUnit(seed + 41) * 0.18,
+        birthDelay: positiveSeededUnit(seed + 53) * 0.45,
+        opacity: 0
+      };
+    });
+    const palette = debrisPaletteForBody(targetBody, breakupModel.material);
+    return {
+      id: `roche-${targetIndex}-${Math.round(t * 1000)}`,
+      t0: t,
+      age: 0,
+      targetIndex,
+      sourceIndex,
+      material: breakupModel.material,
+      gravityMode,
+      totalMass: targetMass,
+      softening: Math.max(targetRadius * 0.22, 0.015),
+      parentRadius: targetRadius,
+      parentName: targetBody?.name || "body",
+      parentTexture: targetBody?.texture || "jupiter",
+      birthDuration: 0.9,
+      color: palette[0],
+      coreColor: palette[1] || palette[0],
+      axis: sourcePull,
+      particles
+    };
+  }
+
+  function applyRocheBreakupStep(states, debrisFields, h, model, t) {
+    const breakupModel = readRocheBreakupModel();
+    const statesWithDebrisGravity = applyDebrisBackreactionStep(states, debrisFields, h, model);
+    const movedDebris = updateDebrisFields(debrisFields, statesWithDebrisGravity, h, model);
+    if (!breakupModel.enabled || bodies.length < 2) return { states: statesWithDebrisGravity, debrisFields: movedDebris };
+    const next = cloneStates(statesWithDebrisGravity);
+    let nextDebris = movedDebris;
+    next.forEach((target, targetIndex) => {
+      if (bodies[targetIndex]?.type === "star") return;
+      if (!stateActive(target, targetIndex) || target.fragmented) return;
+      const diagnostics = tidalDiagnosticsForSample(makeSample(t, next), model, targetIndex);
+      const roche = rocheDiagnosticsFromTidal(diagnostics);
+      const severity = rocheDamageSeverity(roche, breakupModel);
+      if (!roche || severity <= 0) {
+        const currentDamage = Number(target.rocheDamage) || 0;
+        target.rocheDamage = Math.max(0, currentDamage - h * 0.025);
+        target.rocheSeverity = 0;
+        return;
+      }
+      const tDyn = Math.sqrt(Math.max(Math.pow(stateRadius(target, targetIndex), 3), 1e-12) / Math.max(model.g * stateMass(target, targetIndex), 1e-12));
+      const damageGain = severity * h / Math.max(tDyn * breakupModel.resilience, 1e-6);
+      target.rocheDamage = Math.max(0, (Number(target.rocheDamage) || 0) + damageGain);
+      target.rocheSeverity = severity;
+      if (target.rocheDamage < 1) return;
+      target.rocheDamage = 1;
+      if (!breakupModel.breakup) return;
+      const sourceIndex = roche.sourceIndex;
+      const debris = createRocheDebrisField(next, targetIndex, sourceIndex, roche, breakupModel, t, model);
+      target.active = false;
+      target.mass = 0;
+      target.radius = 0;
+      target.fragmented = true;
+      target.fragmentedAt = t;
+      target.rocheSeverity = severity;
+      trajectory.rocheEvents.push({
+        t,
+        targetIndex,
+        sourceIndex,
+        label: `${bodies[targetIndex]?.name || "body"} disrupted by ${bodies[sourceIndex]?.name || "source"}`,
+        material: breakupModel.material,
+        damage: target.rocheDamage,
+        fluidRatio: roche.fluidRatio,
+        rigidRatio: roche.rigidRatio,
+        position: vec(states[targetIndex].x, states[targetIndex].y, states[targetIndex].z),
+        radius: Math.max(roche.targetRadius, 0.08)
+      });
+      if (debris) nextDebris = [...nextDebris, debris];
+    });
+    return { states: next, debrisFields: nextDebris };
   }
 
   function resolveCollisions(states) {
@@ -1357,18 +2251,20 @@ function setupCelestialLab() {
       ? 1
       : Math.max(1, Math.ceil(totalSteps / targetSampleCount(model, totalSteps)));
     let states = bodies.map(bodyState);
+    let debrisFields = [];
     let computedSteps = 0;
     let t = 0;
     const activeCollisionPairs = new Set();
 
     trajectory = {
       signature,
-      samples: [makeSample(0, states)],
+      samples: [makeSample(0, states, debrisFields)],
       totalSteps,
       requestedSteps,
       computedSteps,
       sampleEvery,
       collisionEvents: [],
+      rocheEvents: [],
       complete: false
     };
     plotCursorReady = false;
@@ -1382,12 +2278,16 @@ function setupCelestialLab() {
         const remaining = model.timeSpan - t;
         const h = Math.min(effectiveH, remaining);
         states = stepper(states, h, model);
+        states = applyTidalSpinOrbitStep(states, h, model);
+        const rocheStep = applyRocheBreakupStep(states, debrisFields, h, model, t + h);
+        states = rocheStep.states;
+        debrisFields = rocheStep.debrisFields;
         computedSteps += 1;
         t += h;
         recordCollisionEvents(t, states, activeCollisionPairs);
         states = resolveCollisions(states);
         if (computedSteps % sampleEvery === 0 || computedSteps === totalSteps) {
-          trajectory.samples.push(makeSample(t, states));
+          trajectory.samples.push(makeSample(t, states, debrisFields));
         }
       }
 
@@ -1419,9 +2319,60 @@ function setupCelestialLab() {
       vz: interpolateNumber(state.vz, b.vz, fraction),
       mass: interpolateNumber(state.mass, b.mass, fraction, state.mass ?? 0),
       radius: interpolateNumber(state.radius, b.radius, fraction, state.radius ?? 0),
+      spinOmega: interpolateNumber(state.spinOmega, b.spinOmega, fraction, state.spinOmega ?? 0),
+      spinPhase: interpolateNumber(state.spinPhase, b.spinPhase, fraction, state.spinPhase ?? 0),
+      tidalHeat: interpolateNumber(state.tidalHeat, b.tidalHeat, fraction, state.tidalHeat ?? 0),
+      rocheDamage: interpolateNumber(state.rocheDamage, b.rocheDamage, fraction, state.rocheDamage ?? 0),
+      tidalTorque: interpolateNumber(state.tidalTorque, b.tidalTorque, fraction, state.tidalTorque ?? 0),
+      tidalOrbitRate: interpolateNumber(state.tidalOrbitRate, b.tidalOrbitRate, fraction, state.tidalOrbitRate ?? 0),
+      tidalSpinRatio: interpolateNumber(state.tidalSpinRatio, b.tidalSpinRatio, fraction, state.tidalSpinRatio ?? Number.NaN),
+      tidalBulkSpinL: interpolateNumber(state.tidalBulkSpinL, b.tidalBulkSpinL, fraction, state.tidalBulkSpinL ?? 0),
+      tidalOrbitL: interpolateNumber(state.tidalOrbitL, b.tidalOrbitL, fraction, state.tidalOrbitL ?? 0),
+      tidalTotalL: interpolateNumber(state.tidalTotalL, b.tidalTotalL, fraction, state.tidalTotalL ?? 0),
+      tidalK2: interpolateNumber(state.tidalK2, b.tidalK2, fraction, state.tidalK2 ?? 0),
+      tidalLag: interpolateNumber(state.tidalLag, b.tidalLag, fraction, state.tidalLag ?? 0),
+      tidalInertiaAlpha: interpolateNumber(state.tidalInertiaAlpha, b.tidalInertiaAlpha, fraction, state.tidalInertiaAlpha ?? 0),
       active: fraction < 0.5 ? state.active !== false : b.active !== false,
       mergedInto: fraction < 0.5 ? state.mergedInto : b.mergedInto
     };
+  }
+
+  function interpolateParticle(left, right, fraction) {
+    const a = left || right;
+    const b = right || left;
+    const fade = left && right ? 1 : (left ? 1 - fraction : fraction);
+    return {
+      ...a,
+      x: interpolateNumber(a.x, b.x, fraction),
+      y: interpolateNumber(a.y, b.y, fraction),
+      z: interpolateNumber(a.z, b.z, fraction),
+      vx: interpolateNumber(a.vx, b.vx, fraction),
+      vy: interpolateNumber(a.vy, b.vy, fraction),
+      vz: interpolateNumber(a.vz, b.vz, fraction),
+      radius: interpolateNumber(a.radius, b.radius, fraction, a.radius ?? 0.02),
+      opacity: Math.max(0, Math.min(1, interpolateNumber(a.opacity, b.opacity, fraction, 1) * fade))
+    };
+  }
+
+  function interpolateDebrisFields(leftFields = [], rightFields = [], fraction) {
+    const ids = new Set([
+      ...leftFields.map((field) => field.id),
+      ...rightFields.map((field) => field.id)
+    ]);
+    return Array.from(ids).map((id) => {
+      const left = leftFields.find((field) => field.id === id);
+      const right = rightFields.find((field) => field.id === id);
+      const base = right || left;
+      const particleCount = Math.max(left?.particles?.length || 0, right?.particles?.length || 0);
+      return {
+        ...base,
+        particles: Array.from({ length: particleCount }, (_, index) => interpolateParticle(
+          left?.particles?.[index],
+          right?.particles?.[index],
+          fraction
+        ))
+      };
+    });
   }
 
   function sampleForProgress(progress) {
@@ -1446,7 +2397,8 @@ function setupCelestialLab() {
     const fraction = (target - a.t) / Math.max(1e-9, b.t - a.t);
     return {
       t: target,
-      bodies: a.bodies.map((state, index) => interpolateState(state, b.bodies[index], fraction))
+      bodies: a.bodies.map((state, index) => interpolateState(state, b.bodies[index], fraction)),
+      debris: interpolateDebrisFields(a.debris, b.debris, fraction)
     };
   }
 
@@ -1459,10 +2411,18 @@ function setupCelestialLab() {
     let totalMass = 0;
     let center = vec(0, 0, 0);
     sample.bodies.forEach((state, index) => {
-      const body = bodies[index];
-      if (!body) return;
-      totalMass += body.mass;
-      center = addVec(center, scaleVec(state, body.mass));
+      if (!stateActive(state, index)) return;
+      const mass = stateMass(state, index);
+      totalMass += mass;
+      center = addVec(center, scaleVec(state, mass));
+    });
+    (sample.debris || []).forEach((field) => {
+      (field.particles || []).forEach((particle) => {
+        const mass = Math.max(0, Number(particle.mass) || 0);
+        if (mass <= 0) return;
+        totalMass += mass;
+        center = addVec(center, scaleVec(particle, mass));
+      });
     });
     return totalMass > 0 ? scaleVec(center, 1 / totalMass) : vec(0, 0, 0);
   }
@@ -1500,6 +2460,16 @@ function setupCelestialLab() {
       return vec(dotVec(vector, pair.eX), dotVec(vector, pair.eZ), dotVec(vector, pair.eY));
     }
     return vector;
+  }
+
+  function spinPhaseInView(sample, bodyIndex) {
+    const state = sample?.bodies?.[bodyIndex];
+    const phase = Number(state?.spinPhase) || 0;
+    if ((controls.viewFrame?.value || "inertial") !== "rotatingPair") return phase;
+    const pair = pairKinematics(sample);
+    if (!pair) return phase;
+    const frameAngle = Math.atan2(pair.eX.z, pair.eX.x);
+    return phase - frameAngle;
   }
 
   function transformedSamplePosition(sample, bodyIndex) {
@@ -1925,13 +2895,48 @@ function setupCelestialLab() {
 
   function updateTidalStatus(sample) {
     if (!controls.tidalStatus) return;
-    if (!controls.showTidalForces?.checked) {
+    const tidalVisible = Boolean(controls.showTidalForces?.checked);
+    const rocheVisible = Boolean(controls.showRocheLimit?.checked || controls.rocheBreakup?.checked);
+    if (!tidalVisible && !rocheVisible) {
       controls.tidalStatus.classList.remove("is-visible");
       controls.tidalStatus.innerHTML = "";
       return;
     }
-    const diagnostics = tidalDiagnosticsForSample(sample, readModel());
+    const model = readModel();
+    const diagnostics = tidalDiagnosticsForSample(sample, model);
     controls.tidalStatus.classList.add("is-visible");
+    const targetIndexForStatus = bodies.findIndex((body) => body.id === selectedBodyId);
+    const targetStateForStatus = sample?.bodies?.[targetIndexForStatus];
+    if (!diagnostics && targetStateForStatus?.fragmented) {
+      const field = (sample.debris || []).find((item) => item.targetIndex === targetIndexForStatus);
+      const gravityLabel = field?.gravityMode === "self"
+        ? "fragment N-body"
+        : field?.gravityMode === "collective"
+          ? "collective mass"
+          : "tracer cloud";
+      const gravityNote = field?.gravityMode === "self"
+        ? "Fragments mutually attract each other and compact bodies feel each fragment."
+        : field?.gravityMode === "collective"
+          ? "Compact bodies feel the debris center of mass; fragments still move as individual particles."
+          : "Fragments are visual/test particles: they feel compact bodies, but do not pull back on them.";
+      controls.tidalStatus.innerHTML = `
+        <h3>Roche disruption</h3>
+        <div class="celestial-lagrange-grid">
+          <span class="header">selected body</span>
+          <span>${escapeHtml(bodies[targetIndexForStatus]?.name || "body")}</span>
+          <span class="header">status</span>
+          <span>fragmented</span>
+          <span class="header">fragments</span>
+          <span>${field?.particles?.length ?? "n/a"}</span>
+          <span class="header">debris gravity</span>
+          <span>${gravityLabel}</span>
+          <span class="header">t</span>
+          <span>${Number(targetStateForStatus.fragmentedAt || sample.t).toFixed(2)}</span>
+        </div>
+        <div class="celestial-lagrange-note">The original body has crossed the accumulated Roche damage threshold and is now shown as a debris field. ${gravityNote} This is a teaching model, not a material-fracture solver.</div>
+      `;
+      return;
+    }
     if (!diagnostics) {
       controls.tidalStatus.innerHTML = `
         <h3>Tidal field</h3>
@@ -1939,9 +2944,123 @@ function setupCelestialLab() {
       `;
       return;
     }
-    const ratio = Number.isFinite(diagnostics.ratio)
-      ? diagnostics.ratio.toExponential(2)
+    const formatPercentRatio = (value) => {
+      if (!Number.isFinite(value)) return "n/a";
+      const percent = value * 100;
+      const abs = Math.abs(percent);
+      if (abs >= 0.1 && abs < 1000) return `${percent.toFixed(abs >= 10 ? 1 : 2)}%`;
+      return `${percent.toExponential(2)}%`;
+    };
+    const surfaceRatio = formatPercentRatio(diagnostics.ratio);
+    const sourceRatio = formatPercentRatio(diagnostics.sourceRatio);
+    const sourcePull = Number.isFinite(diagnostics.sourcePull)
+      ? diagnostics.sourcePull.toExponential(2)
       : "n/a";
+    const overlayScale = tidalOverlayScaleFor(model, diagnostics);
+    const orbitPeakRatio = overlayScale.maxAcross > 0 ? diagnostics.across / overlayScale.maxAcross : Number.NaN;
+    const orbitPeakPercent = formatPercentRatio(orbitPeakRatio);
+    const sourceRadius = stateRadius(diagnostics.source.state, diagnostics.source.index);
+    const contactDistance = diagnostics.radius + sourceRadius;
+    const contactNote = diagnostics.source.distance <= contactDistance
+      ? " The bodies are overlapping or touching at this sample, so the tidal ratio is no longer a clean separated-body estimate."
+      : diagnostics.source.distance <= contactDistance * 1.15
+        ? " This is a near-contact pass; the tidal ratio is very sensitive to small distance changes."
+        : "";
+    const roche = rocheVisible ? rocheDiagnosticsFromTidal(diagnostics) : null;
+    const rocheRows = roche
+      ? `
+        <span class="header">Roche fluid</span>
+        <span>${roche.fluid.toFixed(3)}</span>
+        <span class="header">distance / fluid</span>
+        <span>${roche.fluidRatio.toFixed(2)}</span>
+        <span class="header">Roche rigid</span>
+        <span>${roche.rigid.toFixed(3)}</span>
+        <span class="header">distance / rigid</span>
+        <span>${roche.rigidRatio.toFixed(2)}</span>
+      `
+      : "";
+    const rocheNote = roche
+      ? roche.fluidRatio < 1
+        ? " The selected body is inside the fluid Roche limit for this source."
+        : roche.rigidRatio < 1
+          ? " The selected body is inside the rigid Roche limit."
+          : roche.fluidRatio < 1.15
+            ? " The selected body is close to the fluid Roche limit."
+            : ""
+      : "";
+    const damageEnabled = Boolean(controls.showRocheLimit?.checked || controls.rocheBreakup?.checked);
+    const reconstructedDamage = damageEnabled
+      ? (() => {
+        const series = rocheDamageSeries(samplesUntil(sample.t), model);
+        return series.selectedDamage[series.selectedDamage.length - 1] || 0;
+      })()
+      : 0;
+    const damage = Math.max(Number(diagnostics.targetState?.rocheDamage) || 0, reconstructedDamage);
+    const instantaneousSeverity = roche ? rocheDamageSeverity(roche, readRocheBreakupModel()) : 0;
+    const severity = Math.max(Number(diagnostics.targetState?.rocheSeverity) || 0, instantaneousSeverity);
+    const formatSmall = (value) => {
+      if (!Number.isFinite(value)) return "n/a";
+      const abs = Math.abs(value);
+      if (abs === 0) return "0";
+      if (abs < 0.01) return value.toExponential(2);
+      return value.toFixed(abs < 1 ? 3 : 2);
+    };
+    const damageState = !damageEnabled
+      ? ""
+      : !roche
+        ? "no Roche source"
+        : roche.rigidRatio < 1
+          ? "inside rigid Roche"
+          : roche.fluidRatio < 1
+            ? "inside fluid Roche"
+            : "outside Roche limit";
+    const damageRows = damageEnabled
+      ? `
+        <span class="header">tidal damage</span>
+        <span>${formatSmall(Math.min(1, damage))}</span>
+        <span class="header">damage rate</span>
+        <span>${formatSmall(severity)}</span>
+        <span class="header">breakup state</span>
+        <span>${escapeHtml(damageState)}</span>
+        <span class="header">breakup mode</span>
+        <span>${controls.rocheBreakup?.checked ? "fragment at damage = 1" : "diagnostic only"}</span>
+      `
+      : "";
+    const damageNote = damageEnabled
+      ? damage >= 0.75
+        ? (controls.rocheBreakup?.checked ? " Roche breakup is imminent if the body stays in the disruptive zone." : " Roche damage has reached the danger zone; enable breakup to fragment the body at damage = 1.")
+        : damage > 0.25
+          ? " Roche damage is accumulating; a fast flyby may still escape before breakup."
+          : " Roche damage accumulates over a finite internal response time, so crossing the boundary is not an instant explosion."
+      : "";
+    const spinDiagnostics = controls.showTidalLocking?.checked
+      ? spinOrbitDiagnosticsForSample(sample, model)
+      : null;
+    const spinRows = spinDiagnostics
+      ? `
+        <span class="header">spin / orbit</span>
+        <span>${spinDiagnostics.spinRatio.toFixed(2)}</span>
+        <span class="header">spin omega</span>
+        <span>${spinDiagnostics.spinOmega.toExponential(2)}</span>
+        <span class="header">orbit rate</span>
+        <span>${spinDiagnostics.orbitalRate.toExponential(2)}</span>
+        <span class="header">tidal torque</span>
+        <span>${spinDiagnostics.torque.toExponential(2)}</span>
+        <span class="header">bulk spin L</span>
+        <span>${spinDiagnostics.bulkSpinL.toExponential(2)}</span>
+        <span class="header">orbit L</span>
+        <span>${spinDiagnostics.orbitL.toExponential(2)}</span>
+        <span class="header">heat</span>
+        <span>${spinDiagnostics.heat.toExponential(2)}</span>
+        <span class="header">k2 / lag / alpha</span>
+        <span>${spinDiagnostics.k2.toFixed(2)} / ${spinDiagnostics.timeLag.toFixed(2)} / ${spinDiagnostics.inertiaAlpha.toFixed(2)}</span>
+        <span class="header">outcome</span>
+        <span>${escapeHtml(spinDiagnostics.spinState)}</span>
+      `
+      : "";
+    const spinNote = spinDiagnostics
+      ? " Spin-orbit locking uses a planar constant-time-lag torque approximation here: the selected body's bulk spin exchanges angular momentum with the relative orbit, while lost mechanical energy is tracked as heat."
+      : "";
     controls.tidalStatus.innerHTML = `
       <h3>Tidal field on ${escapeHtml(diagnostics.targetBody.name)}</h3>
       <div class="celestial-lagrange-grid">
@@ -1949,12 +3068,21 @@ function setupCelestialLab() {
         <span>${escapeHtml(diagnostics.sourceBody?.name || "body")}</span>
         <span class="header">distance</span>
         <span>${diagnostics.source.distance.toFixed(3)}</span>
-        <span class="header">across diameter</span>
+        <span class="header">near-far tide delta a</span>
         <span>${diagnostics.across.toExponential(2)}</span>
-        <span class="header">tide / surface g</span>
-        <span>${ratio}</span>
+        <span class="header">near-far tide delta a / surface g</span>
+        <span>${surfaceRatio}</span>
+        <span class="header">source pull</span>
+        <span>${sourcePull}</span>
+        <span class="header">near-far tide delta a / source pull</span>
+        <span>${sourceRatio}</span>
+        <span class="header">current / orbit peak</span>
+        <span>${orbitPeakPercent}</span>
+        ${rocheRows}
+        ${damageRows}
+        ${spinRows}
       </div>
-      <div class="celestial-lagrange-note">Arrows show differential gravitational acceleration relative to the selected body's center; this is a local gradient, not a new force law.</div>
+      <div class="celestial-lagrange-note">Arrows show total differential gravitational acceleration from all other bodies, relative to the selected body's center. The near side is pulled more than the center; the far side is pulled less than the center, so in the center-following frame it also points outward. The main source is the largest single G M / r^3 contribution.${contactNote}${rocheNote}${damageNote}${spinNote}</div>
     `;
   }
 
@@ -2239,6 +3367,21 @@ function setupCelestialLab() {
       );
       glow.userData.bodyId = body.id;
       group.add(glow);
+
+      const spinBand = new THREE.Mesh(
+        new THREE.TorusGeometry(body.radius * 1.08, Math.max(body.radius * 0.012, 0.003), 8, 72),
+        new THREE.MeshBasicMaterial({
+          color: 0xf8fafc,
+          transparent: true,
+          opacity: 0.62,
+          depthWrite: false
+        })
+      );
+      spinBand.userData.bodyId = body.id;
+      spinBand.userData.spinBulkMarker = true;
+      spinBand.rotation.x = Math.PI / 2;
+      spinBand.visible = false;
+      group.add(spinBand);
     }
 
     const pickSphere = new THREE.Mesh(
@@ -2595,7 +3738,11 @@ function setupCelestialLab() {
     const origin = vector3FromVec(samplePositionInView(sample, probe.position));
     const direction = vector3FromVec(normalizeVec(sampleVectorInView(sample, probe.delta)));
     const outward = dotVec(probe.offset, probe.delta) >= 0;
-    const length = Math.max(radius * 0.22, Math.min(radius * 1.1, radius * 0.22 + (deltaMagnitude / maxDelta) * radius * 0.78));
+    const strength = Math.max(0, Math.min(1, deltaMagnitude / maxDelta));
+    const visibleStrength = Math.sqrt(strength);
+    const minLength = outward ? radius * 0.28 : radius * 0.42;
+    const maxLength = outward ? radius * 1.14 : radius * 0.9;
+    const length = Math.max(minLength, Math.min(maxLength, minLength + visibleStrength * radius * 0.72));
     const arrow = new THREE.ArrowHelper(
       direction,
       origin,
@@ -2607,26 +3754,265 @@ function setupCelestialLab() {
     arrow.traverse((object) => {
       if (object.material) {
         object.material.transparent = true;
-        object.material.opacity = outward ? 0.88 : 0.78;
+        object.material.opacity = (outward ? 0.24 : 0.2) + visibleStrength * (outward ? 0.64 : 0.58);
         object.material.depthWrite = false;
       }
     });
     three.tidalOverlayGroup.add(arrow);
   }
 
+  function addTidalShape(sample, diagnostics, visualRadius) {
+    if (!window.THREE) return;
+    const target = sample.bodies[diagnostics.targetIndex];
+    const sourceAxis = normalizeVec(subVec(diagnostics.source.state, target), vec(1, 0, 0));
+    const spinDiagnostics = controls.showTidalLocking?.checked
+      ? spinOrbitDiagnosticsForSample(sample, readModel())
+      : null;
+    let bulgeAxis = sourceAxis;
+    if (spinDiagnostics && Number.isFinite(spinDiagnostics.spinOmega) && Number.isFinite(spinDiagnostics.orbitalRate)) {
+      const relativeVelocity = subVec(
+        vec(target.vx, target.vy, target.vz),
+        vec(diagnostics.source.state.vx, diagnostics.source.state.vy, diagnostics.source.state.vz)
+      );
+      const orbitAxis = normalizeVec(crossVec(subVec(target, diagnostics.source.state), relativeVelocity), vec(0, 1, 0));
+      const lagAngle = Math.max(-0.42, Math.min(0.42, (spinDiagnostics.spinOmega - spinDiagnostics.orbitalRate) * 0.16));
+      bulgeAxis = normalizeVec(rotateVecAroundAxis(sourceAxis, orbitAxis, lagAngle), sourceAxis);
+    }
+    const sideAxis = normalizeVec(crossVec(bulgeAxis, vec(0, 1, 0)), diagnostics.probes[2]?.offset || vec(0, 1, 0));
+    const center = sample.bodies[diagnostics.targetIndex];
+    const stretch = visualRadius * 1.28;
+    const squeeze = visualRadius * 0.72;
+    const points = [];
+    for (let step = 0; step <= 96; step += 1) {
+      const theta = (step / 96) * Math.PI * 2;
+      const position = addVec(
+        center,
+        addVec(
+          scaleVec(bulgeAxis, Math.cos(theta) * stretch),
+          scaleVec(sideAxis, Math.sin(theta) * squeeze)
+        )
+      );
+      points.push(vector3FromVec(samplePositionInView(sample, position)));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: 0x7dd3fc,
+      transparent: true,
+      opacity: 0.74,
+      depthWrite: false
+    });
+    const outline = new THREE.LineLoop(geometry, material);
+    three.tidalOverlayGroup.add(outline);
+
+    const centerInView = vector3FromVec(transformedSamplePosition(sample, diagnostics.targetIndex));
+    const sourceAxisInView = vector3FromVec(normalizeVec(sampleVectorInView(sample, bulgeAxis)));
+    const sideAxisInView = vector3FromVec(normalizeVec(sampleVectorInView(sample, sideAxis)));
+    const stretchLabel = makeLabelSprite(spinDiagnostics ? "lagged bulge" : "stretch", "#bae6fd");
+    stretchLabel.position.copy(centerInView).add(sourceAxisInView.multiplyScalar(stretch * 1.35));
+    three.tidalOverlayGroup.add(stretchLabel);
+    const squeezeLabel = makeLabelSprite("squeeze", "#fed7aa");
+    squeezeLabel.position.copy(centerInView).add(sideAxisInView.multiplyScalar(squeeze * 1.65));
+    three.tidalOverlayGroup.add(squeezeLabel);
+  }
+
+  function rocheOrbitBasis(sample, roche) {
+    const source = roche.sourceState;
+    const target = sample.bodies[roche.targetIndex];
+    if (!source || !target) {
+      return { eX: vec(1, 0, 0), eY: vec(0, 0, 1) };
+    }
+    const radial = normalizeVec(subVec(target, source), vec(1, 0, 0));
+    const relativeVelocity = subVec(vec(target.vx, target.vy, target.vz), vec(source.vx, source.vy, source.vz));
+    const normal = normalizeVec(crossVec(radial, relativeVelocity), vec(0, 1, 0));
+    const tangent = normalizeVec(crossVec(normal, radial), vec(0, 0, 1));
+    return { eX: radial, eY: tangent };
+  }
+
+  function addRocheRing(sample, roche, radius, label, color, inside) {
+    if (!window.THREE || !roche || !Number.isFinite(radius) || radius <= 0) return;
+    const { eX, eY } = rocheOrbitBasis(sample, roche);
+    const points = [];
+    for (let step = 0; step <= 160; step += 1) {
+      const theta = (step / 160) * Math.PI * 2;
+      const position = addVec(
+        roche.sourceState,
+        addVec(
+          scaleVec(eX, Math.cos(theta) * radius),
+          scaleVec(eY, Math.sin(theta) * radius)
+        )
+      );
+      points.push(vector3FromVec(samplePositionInView(sample, position)));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: inside ? 0.96 : 0.62,
+      depthWrite: false
+    });
+    const ring = new THREE.LineLoop(geometry, material);
+    three.tidalOverlayGroup.add(ring);
+
+    const labelPosition = addVec(roche.sourceState, scaleVec(eX, radius * 1.04));
+    const sprite = makeLabelSprite(label, inside ? "#fecaca" : "#ddd6fe");
+    sprite.position.copy(vector3FromVec(samplePositionInView(sample, labelPosition)));
+    three.tidalOverlayGroup.add(sprite);
+  }
+
+  function addRocheOverlay(sample, diagnostics) {
+    const roche = rocheDiagnosticsFromTidal(diagnostics);
+    if (!roche) return;
+    const mode = controls.rocheMode?.value || "both";
+    if (mode === "fluid" || mode === "both") {
+      addRocheRing(sample, roche, roche.fluid, "Roche fluid", 0xef4444, roche.fluidRatio < 1);
+    }
+    if (mode === "rigid" || mode === "both") {
+      addRocheRing(sample, roche, roche.rigid, "Roche rigid", 0xa855f7, roche.rigidRatio < 1);
+    }
+  }
+
+  function addRocheDamageHalo(sample, diagnostics) {
+    if (!window.THREE || !diagnostics || !controls.rocheBreakup?.checked) return;
+    const damage = Math.max(0, Math.min(1, Number(diagnostics.targetState?.rocheDamage) || 0));
+    if (damage <= 0.02) return;
+    const center = sample.bodies[diagnostics.targetIndex];
+    const sourceAxis = normalizeVec(subVec(diagnostics.source.state, center), vec(1, 0, 0));
+    const sideAxis = normalizeVec(diagnostics.probes[2]?.offset || vec(0, 1, 0));
+    const radius = Math.max(0.12, diagnostics.radius * (1.52 + damage * 0.35));
+    const points = [];
+    for (let step = 0; step <= 72; step += 1) {
+      const theta = (step / 72) * Math.PI * 2;
+      const wobble = 1 + Math.sin(theta * 7 + damage * 6) * 0.045 * damage;
+      const position = addVec(
+        center,
+        addVec(
+          scaleVec(sourceAxis, Math.cos(theta) * radius * wobble),
+          scaleVec(sideAxis, Math.sin(theta) * radius * wobble * (1 - damage * 0.18))
+        )
+      );
+      points.push(vector3FromVec(samplePositionInView(sample, position)));
+    }
+    const color = damage > 0.72 ? 0xef4444 : 0xf59e0b;
+    const halo = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(points),
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.28 + damage * 0.5,
+        depthWrite: false
+      })
+    );
+    three.tidalOverlayGroup.add(halo);
+    const crackCount = Math.min(9, 2 + Math.floor(damage * 8));
+    for (let index = 0; index < crackCount; index += 1) {
+      const theta = (index / crackCount) * Math.PI * 2 + damage * 0.8;
+      const inner = addVec(center, addVec(scaleVec(sourceAxis, Math.cos(theta) * radius * 0.36), scaleVec(sideAxis, Math.sin(theta) * radius * 0.28)));
+      const outer = addVec(center, addVec(scaleVec(sourceAxis, Math.cos(theta) * radius * 0.9), scaleVec(sideAxis, Math.sin(theta) * radius * 0.72)));
+      const crack = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          vector3FromVec(samplePositionInView(sample, inner)),
+          vector3FromVec(samplePositionInView(sample, outer))
+        ]),
+        new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.2 + damage * 0.55,
+          depthWrite: false
+        })
+      );
+      three.tidalOverlayGroup.add(crack);
+    }
+  }
+
   function updateTidalOverlays(progress) {
     if (!three?.tidalOverlayGroup) return;
     clearTidalOverlay();
-    if (!controls.showTidalForces?.checked) return;
+    const tidalVisible = Boolean(controls.showTidalForces?.checked);
+    const rocheVisible = Boolean(controls.showRocheLimit?.checked || controls.rocheBreakup?.checked);
+    if (!tidalVisible && !rocheVisible) return;
     const sample = sampleForProgress(progress);
-    const diagnostics = tidalDiagnosticsForSample(sample, readModel());
+    const model = readModel();
+    const diagnostics = tidalDiagnosticsForSample(sample, model);
     if (!diagnostics) return;
-    const maxDelta = Math.max(...diagnostics.probes.map((probe) => normVec(probe.delta)), 0);
-    const visualRadius = Math.max(0.14, diagnostics.radius * 1.35);
-    diagnostics.probes.forEach((probe) => addTidalArrow(sample, probe, maxDelta, visualRadius));
-    const label = makeLabelSprite("tidal gradient", "#bae6fd");
-    label.position.copy(vector3FromVec(transformedSamplePosition(sample, diagnostics.targetIndex))).add(new THREE.Vector3(0.32, visualRadius * 1.25, 0));
-    three.tidalOverlayGroup.add(label);
+    if (rocheVisible) addRocheOverlay(sample, diagnostics);
+    addRocheDamageHalo(sample, diagnostics);
+    if (tidalVisible) {
+      const overlayScale = tidalOverlayScaleFor(model, diagnostics);
+      const maxDelta = overlayScale.maxDelta || Math.max(...diagnostics.probes.map((probe) => normVec(probe.delta)), 0);
+      const visualRadius = Math.max(0.14, diagnostics.radius * 1.35);
+      const mode = controls.tidalOverlayMode?.value || "both";
+      if (mode === "shape" || mode === "both") addTidalShape(sample, diagnostics, visualRadius);
+      if (mode === "arrows" || mode === "both") {
+        diagnostics.probes.forEach((probe) => addTidalArrow(sample, probe, maxDelta, visualRadius));
+      }
+      const label = makeLabelSprite("tidal gradient", "#bae6fd");
+      label.position.copy(vector3FromVec(transformedSamplePosition(sample, diagnostics.targetIndex))).add(new THREE.Vector3(0.32, visualRadius * 1.25, 0));
+      three.tidalOverlayGroup.add(label);
+    }
+  }
+
+  function clearThreeGroup(group) {
+    if (!group) return;
+    group.children.slice().forEach((child) => {
+      group.remove(child);
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((material) => material.dispose?.());
+        else child.material.dispose?.();
+      }
+    });
+  }
+
+  function updateDebrisMeshes(sample) {
+    if (!window.THREE || !three?.debrisGroup) return;
+    clearThreeGroup(three.debrisGroup);
+    const fields = sample.debris || [];
+    fields.forEach((field) => {
+      const center = debrisFieldCenterOfMass(field);
+      const birthDuration = Math.max(0.25, Number(field.birthDuration) || 0.8);
+      const coreFade = Math.max(0, 1 - (Number(field.age) || 0) / (birthDuration * 1.45));
+      if (center && coreFade > 0.02 && field.parentRadius) {
+        const coreGeometry = new THREE.SphereGeometry(Math.max(0.018, field.parentRadius * (0.75 + coreFade * 0.18)), 28, 18);
+        const coreMaterial = new THREE.MeshBasicMaterial({
+          color: field.coreColor || field.color || "#f1d5a5",
+          transparent: true,
+          opacity: 0.24 * coreFade,
+          depthWrite: false
+        });
+        const core = new THREE.Mesh(coreGeometry, coreMaterial);
+        core.position.copy(vector3FromVec(samplePositionInView(sample, center)));
+        core.scale.set(1.12, 0.92, 0.92);
+        three.debrisGroup.add(core);
+      }
+      field.particles.forEach((particle, index) => {
+        if ((particle.opacity ?? 1) <= 0.02) return;
+        const geometry = new THREE.SphereGeometry(Math.max(0.012, particle.radius), 10, 8);
+        const material = new THREE.MeshBasicMaterial({
+          color: particle.color || field.color || "#f59e0b",
+          transparent: true,
+          opacity: Math.max(0.16, Math.min(0.95, particle.opacity ?? 1)),
+          depthWrite: false
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(vector3FromVec(samplePositionInView(sample, particle)));
+        const pulse = 1 + 0.16 * Math.sin((field.age || 0) * 10 + index);
+        mesh.scale.setScalar(pulse);
+        three.debrisGroup.add(mesh);
+      });
+      if (field.gravityMode === "collective" && center) {
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(0.016, (field.parentRadius || 0.12) * 0.08), 12, 8),
+          new THREE.MeshBasicMaterial({
+            color: 0xf8fafc,
+            transparent: true,
+            opacity: 0.72,
+            depthWrite: false
+          })
+        );
+        marker.position.copy(vector3FromVec(samplePositionInView(sample, center)));
+        three.debrisGroup.add(marker);
+      }
+    });
   }
 
   function updateBodyMeshes(model, progress) {
@@ -2663,7 +4049,12 @@ function setupCelestialLab() {
       const radiusScale = active ? stateRadius(sampleState, bodyIndex) / Math.max(body.radius, 1e-9) : 1;
       group.scale.setScalar(Number.isFinite(radiusScale) && radiusScale > 0 ? radiusScale : 1);
       group.rotation.z = (body.spinTilt * Math.PI) / 180;
-      group.rotation.y += 0.018 * body.spin;
+      group.rotation.y = spinPhaseInView(currentSample, bodyIndex);
+      group.traverse((child) => {
+        if (child.userData?.spinBulkMarker) {
+          child.visible = active && Boolean(controls.showTidalLocking?.checked);
+        }
+      });
       const mass = stateMass(sampleState, bodyIndex);
       if (active && mass > 0) {
         barycenter.addScaledVector(position, mass);
@@ -2723,6 +4114,7 @@ function setupCelestialLab() {
         });
       }
     }
+    updateDebrisMeshes(currentSample);
 
     const frame = controls.viewFrame ? controls.viewFrame.value : "inertial";
     if (frame === "rotatingPair") {
@@ -2800,7 +4192,10 @@ function setupCelestialLab() {
     const progress = Number(controls.slider.value || 0);
     const sample = sampleForProgress(progress);
     const allStates = (trajectory.samples.length ? trajectory.samples : [sample])
-      .flatMap((item) => item.bodies);
+      .flatMap((item) => [
+        ...item.bodies.filter((state, index) => stateActive(state, index)),
+        ...(item.debris || []).flatMap((field) => field.particles || [])
+      ]);
     const minX = Math.min(...allStates.map((state) => state.x), -1);
     const maxX = Math.max(...allStates.map((state) => state.x), 1);
     const minZ = Math.min(...allStates.map((state) => state.z), -1);
@@ -2828,7 +4223,7 @@ function setupCelestialLab() {
     let nearest = null;
     sample.bodies.forEach((state, index) => {
       const body = bodies[index];
-      if (!body) return;
+      if (!body || !stateActive(state, index)) return;
       const point = map(state);
       const distance = Math.hypot(clickX - point.x, clickY - point.y);
       const drawnRadius = Math.max(body.type === "star" ? 8 : 5, body.radius * scale * 0.55);
@@ -2896,8 +4291,8 @@ function setupCelestialLab() {
         orbitControls.rotateSpeed = 0.65;
         orbitControls.zoomSpeed = 0.85;
         orbitControls.panSpeed = 0.55;
-        orbitControls.minDistance = 3.8;
-        orbitControls.maxDistance = 16;
+        orbitControls.minDistance = 1.2;
+        orbitControls.maxDistance = 36;
         orbitControls.target.set(0, 0, 0);
         orbitControls.addEventListener("change", () => {
           resizeThree();
@@ -2999,6 +4394,8 @@ function setupCelestialLab() {
 
       const bodyGroup = new THREE.Group();
       orbitGroup.add(bodyGroup);
+      const debrisGroup = new THREE.Group();
+      orbitGroup.add(debrisGroup);
 
       const selectionRing = new THREE.Mesh(
         new THREE.TorusGeometry(1, 0.018, 12, 96),
@@ -3071,6 +4468,7 @@ function setupCelestialLab() {
         planet,
         planetGlow,
         bodyGroup,
+        debrisGroup,
         keplerOverlayGroup,
         lagrangeOverlayGroup,
         tidalOverlayGroup,
@@ -3257,10 +4655,10 @@ function setupCelestialLab() {
     let barycenter = vec(0, 0, 0);
     let totalMass = 0;
     sample.bodies.forEach((state, index) => {
-      const body = bodies[index];
-      if (!body) return;
-      barycenter = addVec(barycenter, scaleVec(state, body.mass));
-      totalMass += body.mass;
+      if (!stateActive(state, index)) return;
+      const mass = stateMass(state, index);
+      barycenter = addVec(barycenter, scaleVec(state, mass));
+      totalMass += mass;
     });
     if (totalMass > 0) {
       barycenter = scaleVec(barycenter, 1 / totalMass);
@@ -3272,15 +4670,79 @@ function setupCelestialLab() {
       ctx.stroke();
     }
 
+    const fallbackDiagnostics = tidalDiagnosticsForSample(sample, model);
+    const fallbackRoche = fallbackDiagnostics ? rocheDiagnosticsFromTidal(fallbackDiagnostics) : null;
+    if ((controls.showRocheLimit?.checked || controls.rocheBreakup?.checked) && fallbackRoche) {
+      const mode = controls.rocheMode?.value || "both";
+      const sourcePoint = map(fallbackRoche.sourceState);
+      const drawRocheCircle = (radius, color, label, inside, offsetIndex) => {
+        const screenRadius = Math.max(4, radius * scale);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = inside ? 0.92 : 0.58;
+        ctx.lineWidth = Math.max(1.5, width / 720);
+        ctx.setLineDash(inside ? [] : [8, 6]);
+        ctx.beginPath();
+        ctx.arc(sourcePoint.x, sourcePoint.y, screenRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = `${Math.max(10, width / 95)}px Arial`;
+        ctx.fillText(label, sourcePoint.x + screenRadius + 6, sourcePoint.y - 8 - offsetIndex * 14);
+        ctx.restore();
+      };
+      if (mode === "fluid" || mode === "both") {
+        drawRocheCircle(fallbackRoche.fluid, "#ef4444", "Roche fluid", fallbackRoche.fluidRatio < 1, 0);
+      }
+      if (mode === "rigid" || mode === "both") {
+        drawRocheCircle(fallbackRoche.rigid, "#a855f7", "Roche rigid", fallbackRoche.rigidRatio < 1, 1);
+      }
+      const damage = Math.max(0, Math.min(1, Number(fallbackDiagnostics.targetState?.rocheDamage) || 0));
+      if (controls.rocheBreakup?.checked && damage > 0.02) {
+        const targetPoint = map(sample.bodies[fallbackDiagnostics.targetIndex]);
+        ctx.save();
+        ctx.strokeStyle = damage > 0.72 ? "#ef4444" : "#f59e0b";
+        ctx.globalAlpha = 0.25 + damage * 0.52;
+        ctx.lineWidth = Math.max(2, width / 620);
+        ctx.beginPath();
+        ctx.arc(targetPoint.x, targetPoint.y, Math.max(8, fallbackDiagnostics.radius * scale * (0.85 + damage * 0.25)), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
     sample.bodies.forEach((state, index) => {
       const body = bodies[index];
-      if (!body) return;
+      if (!body || !stateActive(state, index)) return;
       const point = map(state);
-      const radius = Math.max(body.type === "star" ? 8 : 5, body.radius * scale * 0.55);
+      const radius = Math.max(body.type === "star" ? 8 : 5, stateRadius(state, index) * scale * 0.55);
       ctx.fillStyle = body.type === "star" ? "#fbbf24" : (body.texture === "mars" ? "#f97316" : "#38bdf8");
       ctx.beginPath();
       ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
       ctx.fill();
+    });
+
+    (sample.debris || []).forEach((field) => {
+      const center = debrisFieldCenterOfMass(field);
+      const birthDuration = Math.max(0.25, Number(field.birthDuration) || 0.8);
+      const coreFade = Math.max(0, 1 - (Number(field.age) || 0) / (birthDuration * 1.45));
+      if (center && coreFade > 0.02 && field.parentRadius) {
+        const corePoint = map(center);
+        ctx.fillStyle = field.coreColor || field.color || "#f1d5a5";
+        ctx.globalAlpha = 0.2 * coreFade;
+        ctx.beginPath();
+        ctx.arc(corePoint.x, corePoint.y, Math.max(3, field.parentRadius * scale * 0.42), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      field.particles.forEach((particle) => {
+        const point = map(particle);
+        ctx.fillStyle = particle.color || field.color || "#f59e0b";
+        ctx.globalAlpha = Math.max(0.18, Math.min(0.9, particle.opacity ?? 1));
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, Math.max(2, particle.radius * scale * 0.55), 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
     });
 
     const marker = visibleCollisionMarker(sample.t);
@@ -3429,6 +4891,34 @@ function setupCelestialLab() {
     }));
   }
 
+  function rocheBreakupPlotShapes() {
+    return (trajectory.rocheEvents || []).slice(0, 16).map((event) => ({
+      type: "line",
+      xref: "x",
+      yref: "paper",
+      x0: event.t,
+      x1: event.t,
+      y0: 0,
+      y1: 1,
+      line: { color: "rgba(245, 158, 11, 0.68)", width: 1.7, dash: "dot" }
+    }));
+  }
+
+  function rocheBreakupPlotAnnotations() {
+    return (trajectory.rocheEvents || []).slice(0, 4).map((event) => ({
+      x: event.t,
+      y: 0,
+      xref: "x",
+      yref: "paper",
+      text: "Roche breakup",
+      showarrow: false,
+      xanchor: "left",
+      yanchor: "bottom",
+      font: { size: 10, color: "#92400e" },
+      bgcolor: "rgba(255, 255, 255, 0.84)"
+    }));
+  }
+
   function latestCollisionAtOrBefore(t) {
     let latest = null;
     trajectory.collisionEvents.forEach((event) => {
@@ -3542,6 +5032,10 @@ function setupCelestialLab() {
         });
       }
     }
+    const tidalDiagnostics = samples.map((sample) => tidalDiagnosticsForSample(sample, model));
+    const rocheSeries = rocheSeriesFromDiagnostics(tidalDiagnostics);
+    const rocheDamage = rocheDamageSeries(samples, model);
+    const spinOrbit = spinOrbitSeries(samples, model);
     return {
       t: samples.map((sample) => sample.t),
       kinetic: metrics.map((item) => item.kinetic),
@@ -3562,6 +5056,17 @@ function setupCelestialLab() {
       pairPotential,
       bodyAngular,
       lagrangeDistances: lagrangeDistanceSeries(samples),
+      tidalRatio: tidalDiagnostics.map((item) => item ? item.ratio : Number.NaN),
+      tidalAcross: tidalDiagnostics.map((item) => item ? item.across : Number.NaN),
+      rocheFluidRatio: rocheSeries.fluidRatio,
+      rocheRigidRatio: rocheSeries.rigidRatio,
+      rocheDamage: rocheDamage.selectedDamage,
+      rocheMaxDamage: rocheDamage.maxDamage,
+      spinLockProgress: spinOrbit.lockProgress,
+      spinRatio: spinOrbit.spinRatio,
+      orbitScale: spinOrbit.orbitScale,
+      spinHeat: spinOrbit.heat,
+      spinTotalL: spinOrbit.totalL,
       closestRatio: metrics.map((item) => item.closestPair.ratio),
       closestDistance: metrics.map((item) => item.closestPair.distance)
     };
@@ -3833,8 +5338,8 @@ function setupCelestialLab() {
       plot_bgcolor: "#ffffff",
       font: { family: "Arial, sans-serif", size: 12, color: "#334155" },
       legend: { orientation: "h", y: 1.22, x: 0, font: { size: 11 } },
-      shapes: [currentTimeShape(currentT), ...collisionPlotShapes()],
-      annotations: [currentTimeAnnotation(currentT), ...collisionPlotAnnotations()]
+      shapes: [currentTimeShape(currentT), ...collisionPlotShapes(), ...rocheBreakupPlotShapes()],
+      annotations: [currentTimeAnnotation(currentT), ...collisionPlotAnnotations(), ...rocheBreakupPlotAnnotations()]
     };
     const faint = { width: 1.1 };
     const strong = { width: 2.2 };
@@ -3888,15 +5393,76 @@ function setupCelestialLab() {
       { width: 2, dash: "dash", yaxis: "y2" }
     ));
     const lagrangeDistanceValues = full.lagrangeDistances.flatMap((series) => series.distance);
+    const tidalEnabled = Boolean(controls.showTidalForces?.checked)
+      && full.tidalRatio.some((value) => Number.isFinite(value));
+    const tidalFullTrace = tidalEnabled
+      ? lineTrace(full.t, full.tidalRatio, `${selectedName} near-far tide delta a / surface g full`, "rgba(14, 165, 233, 0.18)", { ...faint, showlegend: false, yaxis: "y2" })
+      : null;
+    const tidalElapsedTrace = tidalEnabled
+      ? lineTrace(elapsed.t, elapsed.tidalRatio, `${selectedName} near-far tide delta a / surface g`, "#0284c7", { width: 2.2, yaxis: "y2" })
+      : null;
+    const rocheMode = controls.rocheMode?.value || "both";
+    const rocheEnabled = Boolean(controls.showRocheLimit?.checked || controls.rocheBreakup?.checked)
+      && (
+        (rocheMode !== "rigid" && full.rocheFluidRatio.some((value) => Number.isFinite(value)))
+        || (rocheMode !== "fluid" && full.rocheRigidRatio.some((value) => Number.isFinite(value)))
+      );
+    const rocheTraceSpecs = [
+      ...(rocheMode === "fluid" || rocheMode === "both"
+        ? [{ key: "rocheFluidRatio", label: `${selectedName} distance / fluid Roche`, color: "#ef4444", faint: "rgba(239, 68, 68, 0.15)", dash: "dash" }]
+        : []),
+      ...(rocheMode === "rigid" || rocheMode === "both"
+        ? [{ key: "rocheRigidRatio", label: `${selectedName} distance / rigid Roche`, color: "#a855f7", faint: "rgba(168, 85, 247, 0.15)", dash: "dot" }]
+        : [])
+    ].filter((spec) => full[spec.key]?.some((value) => Number.isFinite(value)));
+    const rocheFullTraces = rocheEnabled
+      ? rocheTraceSpecs.map((spec) => lineTrace(full.t, full[spec.key], `${spec.label} full`, spec.faint, { ...faint, showlegend: false, yaxis: "y2", dash: spec.dash }))
+      : [];
+    const rocheElapsedTraces = rocheEnabled
+      ? rocheTraceSpecs.map((spec) => lineTrace(elapsed.t, elapsed[spec.key], spec.label, spec.color, { width: 2.05, yaxis: "y2", dash: spec.dash }))
+      : [];
+    const rocheBreakupEnabled = Boolean(controls.showRocheLimit?.checked || controls.rocheBreakup?.checked)
+      && full.rocheMaxDamage.some((value) => Number.isFinite(value));
+    const rocheDamageFullTrace = rocheBreakupEnabled
+      ? lineTrace(full.t, full.rocheMaxDamage, "max tidal damage full", "rgba(245, 158, 11, 0.16)", { ...faint, showlegend: false, yaxis: "y2" })
+      : null;
+    const rocheDamageElapsedTrace = rocheBreakupEnabled
+      ? lineTrace(elapsed.t, elapsed.rocheMaxDamage, "max tidal damage", "#f59e0b", { width: 2.15, yaxis: "y2" })
+      : null;
+    const rocheThresholdTrace = (rocheEnabled || rocheBreakupEnabled)
+      ? lineTrace(full.t, full.t.map(() => 1), "Roche / damage threshold", "rgba(239, 68, 68, 0.55)", { width: 1.35, dash: "dot", yaxis: "y2" })
+      : null;
+    const spinOrbitEnabled = Boolean(controls.showTidalLocking?.checked)
+      && full.spinLockProgress.some((value) => Number.isFinite(value));
+    const spinOrbitFullTrace = spinOrbitEnabled
+      ? lineTrace(full.t, full.spinLockProgress, "spin lock progress full", "rgba(124, 58, 237, 0.16)", { ...faint, showlegend: false, yaxis: "y2" })
+      : null;
+    const spinOrbitElapsedTrace = spinOrbitEnabled
+      ? lineTrace(elapsed.t, elapsed.spinLockProgress, "spin lock progress", "#7c3aed", { width: 2.2, dash: "dot", yaxis: "y2" })
+      : null;
+    const tidalValues = tidalEnabled ? full.tidalRatio.filter((value) => Number.isFinite(value)) : [];
+    const rocheValues = rocheEnabled
+      ? rocheTraceSpecs.flatMap((spec) => full[spec.key].filter((value) => Number.isFinite(value)))
+      : [];
+    const rocheDamageValues = rocheBreakupEnabled ? full.rocheMaxDamage.filter((value) => Number.isFinite(value)) : [];
+    const spinOrbitValues = spinOrbitEnabled ? full.spinLockProgress.filter((value) => Number.isFinite(value)) : [];
+    const diagnosticTitleParts = ["Collision monitor"];
+    if (full.lagrangeDistances.length) diagnosticTitleParts.push("L-point drift");
+    if (tidalEnabled) diagnosticTitleParts.push("tidal stress");
+    if (rocheEnabled) diagnosticTitleParts.push("Roche limit");
+    if (rocheBreakupEnabled) diagnosticTitleParts.push("tidal damage");
+    if (spinOrbitEnabled) diagnosticTitleParts.push("spin-orbit exchange");
+    const hasSecondaryDiagnostics = full.lagrangeDistances.length || tidalEnabled || rocheEnabled || rocheBreakupEnabled || spinOrbitEnabled;
     const elementsLayout = {
       ...layoutBase,
-      margin: { ...layoutBase.margin, r: full.lagrangeDistances.length ? 58 : layoutBase.margin.r },
-      title: { text: full.lagrangeDistances.length ? "Collision + L-point diagnostics" : "Collision monitor: closest pair / contact threshold", font: { size: 14 } },
+      margin: { ...layoutBase.margin, r: hasSecondaryDiagnostics ? 62 : layoutBase.margin.r },
+      title: { text: diagnosticTitleParts.join(" + "), font: { size: 14 } },
       xaxis: { title: "t" },
       yaxis: { title: "distance / (R_i + R_j)", range: paddedPlotRange(full.closestRatio, { relativeMin: 0.12, absoluteMin: 0.4, nonnegative: true }) },
       shapes: [
         currentTimeShape(currentT),
         ...collisionPlotShapes(),
+        ...rocheBreakupPlotShapes(),
         {
           type: "line",
           xref: "paper",
@@ -3911,6 +5477,7 @@ function setupCelestialLab() {
       annotations: [
         currentTimeAnnotation(currentT),
         ...collisionPlotAnnotations(),
+        ...rocheBreakupPlotAnnotations(),
         {
           x: 1,
           y: 1,
@@ -3925,27 +5492,66 @@ function setupCelestialLab() {
         }
       ]
     };
-    if (full.lagrangeDistances.length) {
+    if (hasSecondaryDiagnostics) {
+      const secondaryValues = [...lagrangeDistanceValues, ...tidalValues, ...rocheValues, ...rocheDamageValues, ...spinOrbitValues, ...(rocheEnabled || rocheBreakupEnabled ? [0, 1] : [])];
+      const secondaryTitleParts = [];
+      if (full.lagrangeDistances.length) secondaryTitleParts.push("L distance");
+      if (tidalEnabled) secondaryTitleParts.push("tide / surface g");
+      if (rocheEnabled) secondaryTitleParts.push("distance / Roche");
+      if (rocheBreakupEnabled) secondaryTitleParts.push("damage");
+      if (spinOrbitEnabled) secondaryTitleParts.push("spin lock");
+      elementsLayout.yaxis = {
+        ...elementsLayout.yaxis,
+        domain: [0, 0.42]
+      };
       elementsLayout.yaxis2 = {
-        title: "distance to L point",
-        overlaying: "y",
+        title: secondaryTitleParts.join(" + "),
+        anchor: "x",
+        domain: [0.58, 1],
         side: "right",
         rangemode: "tozero",
-        range: paddedPlotRange(lagrangeDistanceValues, { relativeMin: 0.18, absoluteMin: 0.2, nonnegative: true })
+        range: paddedPlotRange(secondaryValues, { relativeMin: 0.18, absoluteMin: tidalEnabled ? 0.02 : 0.2, nonnegative: true })
       };
     }
 
+    const elementTraces = [
+      lineTrace(full.t, full.closestRatio, "closest full", "rgba(220, 38, 38, 0.16)", { ...faint, showlegend: false }),
+      lineTrace(elapsed.t, elapsed.closestRatio, "closest distance / contact distance", "#dc2626", strong),
+      ...lagrangeDistanceFullTraces,
+      ...lagrangeDistanceElapsedTraces,
+      ...rocheFullTraces,
+      ...(rocheThresholdTrace ? [rocheThresholdTrace] : [])
+    ];
+    let tidalElapsedIndex = -1;
+    if (tidalFullTrace && tidalElapsedTrace) {
+      elementTraces.push(tidalFullTrace);
+      tidalElapsedIndex = elementTraces.length;
+      elementTraces.push(tidalElapsedTrace);
+    }
+    const rocheElapsedStartIndex = elementTraces.length;
+    elementTraces.push(...rocheElapsedTraces);
+    let rocheDamageElapsedIndex = -1;
+    if (rocheDamageFullTrace && rocheDamageElapsedTrace) {
+      elementTraces.push(rocheDamageFullTrace);
+      rocheDamageElapsedIndex = elementTraces.length;
+      elementTraces.push(rocheDamageElapsedTrace);
+    }
+    let spinOrbitElapsedIndex = -1;
+    if (spinOrbitFullTrace && spinOrbitElapsedTrace) {
+      elementTraces.push(spinOrbitFullTrace);
+      spinOrbitElapsedIndex = elementTraces.length;
+      elementTraces.push(spinOrbitElapsedTrace);
+    }
     const elementElapsedIndices = [
       1,
-      ...lagrangeDistanceElapsedTraces.map((_, index) => 2 + lagrangeDistanceFullTraces.length + index)
+      ...lagrangeDistanceElapsedTraces.map((_, index) => 2 + lagrangeDistanceFullTraces.length + index),
+      ...(tidalElapsedIndex >= 0 ? [tidalElapsedIndex] : []),
+      ...rocheElapsedTraces.map((_, index) => rocheElapsedStartIndex + index),
+      ...(rocheDamageElapsedIndex >= 0 ? [rocheDamageElapsedIndex] : []),
+      ...(spinOrbitElapsedIndex >= 0 ? [spinOrbitElapsedIndex] : [])
     ];
     try {
-      Plotly.react("celestialElementsPlot", [
-        lineTrace(full.t, full.closestRatio, "closest full", "rgba(220, 38, 38, 0.16)", { ...faint, showlegend: false }),
-        lineTrace(elapsed.t, elapsed.closestRatio, "closest distance / contact distance", "#dc2626", strong),
-        ...lagrangeDistanceFullTraces,
-        ...lagrangeDistanceElapsedTraces
-      ], elementsLayout, config);
+      Plotly.react("celestialElementsPlot", elementTraces, elementsLayout, config);
     } catch (error) {
       console.error("Celestial elements plot failed", error);
     }
@@ -3965,7 +5571,11 @@ function setupCelestialLab() {
           full.closestRatio,
           ...full.lagrangeDistances
             .slice(0, lagrangeDistanceElapsedTraces.length)
-            .map((series) => series.distance)
+            .map((series) => series.distance),
+          ...(tidalElapsedIndex >= 0 ? [full.tidalRatio] : []),
+          ...(rocheEnabled ? rocheTraceSpecs.map((spec) => full[spec.key]) : []),
+          ...(rocheDamageElapsedIndex >= 0 ? [full.rocheMaxDamage] : []),
+          ...(spinOrbitElapsedIndex >= 0 ? [full.spinLockProgress] : [])
         ]
       }
     };
@@ -3981,8 +5591,8 @@ function setupCelestialLab() {
     updateElapsedPlot("celestialAngularPlot", plotCursorState.angular, xSlice, endIndex);
     updateElapsedPlot("celestialElementsPlot", plotCursorState.elements, xSlice, endIndex);
     const relayout = {
-      shapes: [currentTimeShape(sample.t), ...collisionPlotShapes()],
-      annotations: [currentTimeAnnotation(sample.t), ...collisionPlotAnnotations()]
+      shapes: [currentTimeShape(sample.t), ...collisionPlotShapes(), ...rocheBreakupPlotShapes()],
+      annotations: [currentTimeAnnotation(sample.t), ...collisionPlotAnnotations(), ...rocheBreakupPlotAnnotations()]
     };
     Plotly.relayout("celestialEnergyPlot", relayout);
     Plotly.relayout("celestialAngularPlot", relayout);
@@ -3990,6 +5600,7 @@ function setupCelestialLab() {
       shapes: [
         currentTimeShape(sample.t),
         ...collisionPlotShapes(),
+        ...rocheBreakupPlotShapes(),
         {
           type: "line",
           xref: "paper",
@@ -4004,6 +5615,7 @@ function setupCelestialLab() {
       annotations: [
         currentTimeAnnotation(sample.t),
         ...collisionPlotAnnotations(),
+        ...rocheBreakupPlotAnnotations(),
         {
           x: 1,
           y: 1,
@@ -4042,7 +5654,27 @@ function setupCelestialLab() {
 
   function refresh() {
     syncInputModeUi();
+    updateCelestialEquation();
     rebuildTrajectoryBuffer();
+  }
+
+  function resizePlots() {
+    if (!window.Plotly) return;
+    ["celestialEnergyPlot", "celestialAngularPlot", "celestialElementsPlot"].forEach((id) => {
+      const plot = document.getElementById(id);
+      if (plot) Plotly.Plots.resize(plot);
+    });
+  }
+
+  function redrawDiagnostics() {
+    updateCelestialEquation();
+    drawScene();
+    updatePlots();
+    resizePlots();
+  }
+
+  function refreshAndRedraw() {
+    refresh();
   }
 
   function tick(timestamp) {
@@ -4110,6 +5742,17 @@ function setupCelestialLab() {
       controls.showKeplerThird,
       controls.showLagrange,
       controls.showTidalForces,
+      controls.tidalOverlayMode,
+      controls.showTidalLocking,
+      controls.showRocheLimit,
+      controls.rocheMode,
+      controls.rocheBreakup,
+      controls.rocheMaterial,
+      controls.debrisGravityMode,
+      controls.debrisSelfGravityLimit,
+      controls.tidalK2,
+      controls.tidalLag,
+      controls.tidalInertia,
       controls.showTrails,
       controls.slider,
       controls.addPlanetBtn,
@@ -4126,19 +5769,21 @@ function setupCelestialLab() {
   controls.scenario.addEventListener("change", () => {
     if (controls.scenario.value !== "custom") activePreset = controls.scenario.value;
     resetBodiesFromScenario();
-    refresh();
+    refreshAndRedraw();
   });
 
   controls.bodySelect.addEventListener("change", () => {
     selectedBodyId = controls.bodySelect.value;
     syncBodyEditor();
-    drawScene();
-    updatePlots();
+    if (controls.showTidalLocking?.checked || controls.rocheBreakup?.checked) {
+      refreshAndRedraw();
+      return;
+    }
+    redrawDiagnostics();
   });
 
   controls.viewFrame.addEventListener("change", () => {
-    drawScene();
-    updatePlots();
+    redrawDiagnostics();
   });
 
   [
@@ -4164,24 +5809,53 @@ function setupCelestialLab() {
     if (controls.inputMode.value === "orbit") syncStatesFromOrbitalElements();
     else if (bodies.length === 2) syncOrbitFromSelectedState();
     syncBodyEditor();
-    refresh();
+    refreshAndRedraw();
   });
 
-  controls.collisionMode?.addEventListener("change", refresh);
+  controls.collisionMode?.addEventListener("change", refreshAndRedraw);
+  controls.showTidalLocking?.addEventListener("change", () => {
+    updateCapabilityControls();
+    refreshAndRedraw();
+  });
+  const handleRocheLimitControl = () => {
+    if (!controls.showRocheLimit.checked && controls.rocheBreakup?.checked) {
+      controls.rocheBreakup.checked = false;
+      updateCapabilityControls();
+      refreshAndRedraw();
+      return;
+    }
+    updateCapabilityControls();
+    redrawDiagnostics();
+  };
+  controls.showRocheLimit?.addEventListener("change", handleRocheLimitControl);
+  controls.showRocheLimit?.addEventListener("input", handleRocheLimitControl);
+  const handleRocheBreakupControl = () => {
+    if (controls.rocheBreakup.checked && controls.showRocheLimit) controls.showRocheLimit.checked = true;
+    updateCapabilityControls();
+    redrawDiagnostics();
+    refreshAndRedraw();
+  };
+  controls.rocheBreakup?.addEventListener("change", handleRocheBreakupControl);
+  controls.rocheBreakup?.addEventListener("input", handleRocheBreakupControl);
+  controls.rocheMaterial?.addEventListener("change", refreshAndRedraw);
+  controls.debrisGravityMode?.addEventListener("change", () => {
+    updateCapabilityControls();
+    refreshAndRedraw();
+  });
+  controls.debrisSelfGravityLimit?.addEventListener("input", refreshAndRedraw);
+  controls.debrisSelfGravityLimit?.addEventListener("change", refreshAndRedraw);
+  [controls.tidalK2, controls.tidalLag, controls.tidalInertia].forEach((control) => {
+    control?.addEventListener("input", refreshAndRedraw);
+    control?.addEventListener("change", refreshAndRedraw);
+  });
 
   controls.showRungeLenz.addEventListener("change", () => {
     drawScene();
   });
 
-  [controls.showKeplerFirst, controls.showKeplerSecond, controls.keplerSecondPercent, controls.showKeplerThird, controls.showLagrange, controls.showTidalForces].forEach((control) => {
-    control?.addEventListener("change", () => {
-      drawScene();
-      updateMetrics();
-    });
-    control?.addEventListener("input", () => {
-      drawScene();
-      updateMetrics();
-    });
+  [controls.showKeplerFirst, controls.showKeplerSecond, controls.keplerSecondPercent, controls.showKeplerThird, controls.showLagrange, controls.showTidalForces, controls.tidalOverlayMode, controls.rocheMode, controls.showTidalLocking].forEach((control) => {
+    control?.addEventListener("change", redrawDiagnostics);
+    control?.addEventListener("input", redrawDiagnostics);
   });
 
   lagrangePlaceButtons.forEach((button) => {
@@ -4242,7 +5916,7 @@ function setupCelestialLab() {
 
   controls.resetPresetBtn.addEventListener("click", () => {
     resetBodiesFromScenario();
-    refresh();
+    refreshAndRedraw();
   });
 
   controls.playBtn.addEventListener("click", () => {
@@ -4257,18 +5931,12 @@ function setupCelestialLab() {
   if (tabButton) {
     tabButton.addEventListener("click", () => {
       window.setTimeout(() => {
-        refresh();
-        if (window.Plotly) {
-          ["celestialEnergyPlot", "celestialAngularPlot", "celestialElementsPlot"].forEach((id) => {
-            const plot = document.getElementById(id);
-            if (plot) Plotly.Plots.resize(plot);
-          });
-        }
+        refreshAndRedraw();
       }, 0);
     });
   }
 
   window.addEventListener("resize", drawScene);
   resetBodiesFromScenario();
-  refresh();
+  refreshAndRedraw();
 }
